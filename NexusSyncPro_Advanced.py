@@ -45,7 +45,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-PORTAL_URL = "http://122.186.209.30:8068/NCC/Sitapur/Sign-In-Users.php"
+PORTAL_URL = "#secret page "
 MY_USER = os.getenv("PORTAL_USER")
 MY_PASS = os.getenv("PORTAL_PASS")
 MY_DISTRICT = os.getenv("PORTAL_DISTRICT", "Sitapur")
