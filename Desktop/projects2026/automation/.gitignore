@@ -1,0 +1,43 @@
+# Nexus Sync — Enterprise Suite
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak
+
+# Distribution packaging folders
+NexusSyncPro_*_Deployment/
+NexusSyncPro_Ashish_Kumar_Final/
+NexusSyncPro_Distribution_Final/
+
+# Sensitive credentials — NEVER commit these
+.env
+bot_credentials.json
+.nexus_license
+.nexus_workspace_path
+
+# SQLite database (server-side, generated at runtime)
+*.sqlite
+
+# Control Tower runtime artifacts (EXE files go to S3, not git)
+Nexus_Control_Tower/artifacts/
+
+# Python virtual environment
+venv/
+.venv/
+env/
+
+# IDE folders
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Selenium / WebDriver cache
+.wdm/

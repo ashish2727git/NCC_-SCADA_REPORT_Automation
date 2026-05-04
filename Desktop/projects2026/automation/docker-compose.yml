@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  nexus-control-tower:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: nexus_control_tower
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist the SQLite database and uploaded artifacts outside the container
+      - nexus_db:/app/nexus_db.sqlite
+      - nexus_artifacts:/app/artifacts
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  nexus_db:
+  nexus_artifacts:
