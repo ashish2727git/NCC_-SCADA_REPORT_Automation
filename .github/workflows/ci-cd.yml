@@ -36,10 +36,10 @@ jobs:
         run: pip install pyflakes
 
       - name: Run syntax check on main app
-        run: python -m pyflakes automation/NexusSyncPro_Advanced.py || true
+        run: python -m pyflakes Desktop/projects2026/automation/NexusSyncPro_Advanced.py || true
 
       - name: Run syntax check on bot
-        run: python -m pyflakes automation/WhatsApp_Nexus_Bot/NexusBot.py || true
+        run: python -m pyflakes Desktop/projects2026/automation/WhatsApp_Nexus_Bot/NexusBot.py || true
 
   # ─── JOB 2: Build Windows EXE (runs only on main) ──────────────────────
   build-exe:
@@ -63,11 +63,11 @@ jobs:
           pip install pyinstaller customtkinter pandas selenium webdriver_manager python-dotenv openpyxl requests beautifulsoup4 schedule
 
       - name: Build EXE with PyInstaller
-        working-directory: automation
+        working-directory: Desktop/projects2026/automation
         run: pyinstaller --noconfirm NexusSyncPro_Advanced.spec
 
       - name: Rename EXE with version tag
-        working-directory: automation
+        working-directory: Desktop/projects2026/automation
         shell: powershell
         run: |
           $version = (Get-Date -Format "yyyy.MM.dd")
@@ -84,7 +84,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Upload EXE to S3
-        working-directory: automation
+        working-directory: Desktop/projects2026/automation
         shell: powershell
         run: |
           aws s3 cp dist/${{ env.EXE_NAME }} s3://${{ env.S3_BUCKET }}/releases/${{ env.EXE_NAME }}
@@ -122,7 +122,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           IMAGE_URI=$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
-          docker build -t $IMAGE_URI .
+          docker build -t $IMAGE_URI -f Desktop/projects2026/automation/Dockerfile Desktop/projects2026/automation
           docker push $IMAGE_URI
           # Also tag as 'latest' for easy reference
           docker tag $IMAGE_URI $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:latest
