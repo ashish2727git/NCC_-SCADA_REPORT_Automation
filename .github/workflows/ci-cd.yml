@@ -72,8 +72,7 @@ jobs:
         run: |
           $version = (Get-Date -Format "yyyy.MM.dd")
           $src = Get-ChildItem -Path dist -Filter "*.exe" | Select-Object -First 1
-          $dest = "dist/Ashish_Kumar_NexusSyncPro_$version.exe"
-          Rename-Item $src.FullName $dest
+          Rename-Item -Path $src.FullName -NewName "Ashish_Kumar_NexusSyncPro_$version.exe"
           echo "EXE_NAME=Ashish_Kumar_NexusSyncPro_$version.exe" >> $env:GITHUB_ENV
 
       - name: Configure AWS Credentials
