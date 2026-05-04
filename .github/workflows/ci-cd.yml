@@ -1,0 +1,175 @@
+name: Nexus Sync — CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main       # Production deployment
+      - staging    # Staging deployment
+      - dev        # Dev build only (no deploy)
+  pull_request:
+    branches:
+      - main
+      - staging
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: nexus-control-tower
+  S3_BUCKET: nexus-sync-artifacts-802346121670
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+
+  # ─── JOB 1: Lint & Basic Validation ──────────────────────────────────────
+  validate:
+    name: Validate Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyflakes
+
+      - name: Run syntax check on main app
+        run: python -m pyflakes automation/NexusSyncPro_Advanced.py || true
+
+      - name: Run syntax check on bot
+        run: python -m pyflakes automation/WhatsApp_Nexus_Bot/NexusBot.py || true
+
+  # ─── JOB 2: Build Windows EXE (runs only on main) ──────────────────────
+  build-exe:
+    name: Build Windows EXE
+    runs-on: windows-latest
+    needs: validate
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller customtkinter pandas selenium webdriver_manager python-dotenv openpyxl requests beautifulsoup4 schedule
+
+      - name: Build EXE with PyInstaller
+        working-directory: automation
+        run: pyinstaller --noconfirm NexusSyncPro_Advanced.spec
+
+      - name: Rename EXE with version tag
+        working-directory: automation
+        shell: powershell
+        run: |
+          $version = (Get-Date -Format "yyyy.MM.dd")
+          $src = Get-ChildItem -Path dist -Filter "*.exe" | Select-Object -First 1
+          $dest = "dist/Ashish_Kumar_NexusSyncPro_$version.exe"
+          Rename-Item $src.FullName $dest
+          echo "EXE_NAME=Ashish_Kumar_NexusSyncPro_$version.exe" >> $env:GITHUB_ENV
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload EXE to S3
+        working-directory: automation
+        shell: powershell
+        run: |
+          aws s3 cp dist/${{ env.EXE_NAME }} s3://${{ env.S3_BUCKET }}/releases/${{ env.EXE_NAME }}
+          aws s3 cp dist/${{ env.EXE_NAME }} s3://${{ env.S3_BUCKET }}/releases/latest.exe
+          Write-Host "✅ EXE uploaded to S3 as ${{ env.EXE_NAME }} and latest.exe"
+
+  # ─── JOB 3: Build & Push Docker Image to ECR ────────────────────────────
+  build-docker:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging'
+
+    outputs:
+      image_uri: ${{ steps.build-image.outputs.image_uri }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push Docker image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE_URI=$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          docker build -t $IMAGE_URI .
+          docker push $IMAGE_URI
+          # Also tag as 'latest' for easy reference
+          docker tag $IMAGE_URI $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:latest
+          docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:latest
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "✅ Docker image pushed: $IMAGE_URI"
+
+  # ─── JOB 4: Deploy to AWS ECS ────────────────────────────────────────────
+  deploy:
+    name: Deploy to AWS ECS
+    runs-on: ubuntu-latest
+    needs: build-docker
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download ECS task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition nexus-control-tower \
+            --query taskDefinition > task-definition.json
+
+      - name: Update ECS task definition with new image
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: nexus-control-tower
+          image: ${{ needs.build-docker.outputs.image_uri }}
+
+      - name: Deploy to Amazon ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: nexus-control-tower-service
+          cluster: nexus-cluster
+          wait-for-service-stability: true
+
+      - name: Deployment Success Notification
+        run: echo "🚀 Nexus Control Tower deployed successfully to ECS — ${{ github.sha }}"
