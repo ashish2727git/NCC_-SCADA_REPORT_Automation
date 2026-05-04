@@ -14,7 +14,7 @@ on:
 env:
   AWS_REGION: ap-south-1
   ECR_REPOSITORY: nexus-control-tower
-  S3_BUCKET: nexus-sync-artifacts
+  S3_BUCKET: nexus-sync-artifacts-802346121670
   IMAGE_TAG: ${{ github.sha }}
 
 jobs:
