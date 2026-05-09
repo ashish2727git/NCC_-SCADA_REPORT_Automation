@@ -200,7 +200,6 @@ class NexusSyncPro(ctk.CTk):
 
         frame = ctk.CTkFrame(outer, fg_color=CLR_CARD, corner_radius=14, width=520)
         frame.place(relx=0.5, rely=0.5, anchor="center")
-        frame.pack_propagate(False)
 
         # Header
         ctk.CTkLabel(frame, text="⚙️ FIRST-TIME SETUP", font=("Segoe UI", 22, "bold"), text_color=CLR_CYAN).pack(pady=(30, 4), padx=40)
