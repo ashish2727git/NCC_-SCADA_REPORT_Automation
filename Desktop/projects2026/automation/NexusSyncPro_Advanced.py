@@ -157,6 +157,13 @@ class NexusSyncPro(ctk.CTk):
                     f.write(key)
             except Exception: pass
             self.err_lbl.configure(text="✅ Activation Successful! Booting system...", text_color=CLR_GREEN)
+            
+            # First-time setup reminder popup
+            messagebox.showinfo("Nexus Sync | Setup Required", 
+                "System Activated Successfully!\n\n"
+                "IMPORTANT: Please ensure you have configured your Portal Credentials in the .env file. "
+                "You will also need to select your base data folder on the next screen to start automation.")
+                
             self.after(1000, self.reboot_to_main)
         else:
             err_msg = getattr(self, 'last_license_error', "❌ Invalid Product Key.")
