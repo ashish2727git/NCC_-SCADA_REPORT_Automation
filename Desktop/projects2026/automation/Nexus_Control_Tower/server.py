@@ -5,6 +5,8 @@ from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 import uvicorn
 
+ADMIN_HTML = os.path.join(os.path.dirname(__file__), "admin_dashboard.html")
+
 app = FastAPI(title="Nexus Control Tower")
 
 DB_FILE = "nexus_db.sqlite"
@@ -175,8 +177,12 @@ def download_latest_route():
     file_path = os.path.join(ARTIFACTS_DIR, "latest.exe")
     if not os.path.exists(file_path):
         return HTMLResponse("<body style='background:#0f172a; color:white; text-align:center; padding-top:50px; font-family:sans-serif;'><h1>Server Error</h1><p>The build pipeline is still compiling the EXE. Please try again in 2 minutes.</p></body>", status_code=404)
-    
     return FileResponse(path=file_path, filename="NexusSyncPro_Enterprise.exe", media_type='application/octet-stream')
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_dashboard():
+    with open(ADMIN_HTML, "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

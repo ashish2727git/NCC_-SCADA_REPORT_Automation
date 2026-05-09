@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus Control Tower — Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --bg:#080d1a;--surface:#0f1829;--card:#141e33;--border:#1e2d4a;
+    --primary:#3b82f6;--primary-glow:rgba(59,130,246,.3);
+    --success:#10b981;--danger:#ef4444;--warn:#f59e0b;
+    --text:#f1f5f9;--muted:#64748b;--subtle:#1e293b;
+  }
+  body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+
+  /* ── Login gate ── */
+  #login-gate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:100}
+  .login-box{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px;width:380px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  .login-box h2{font-size:1.6rem;margin-bottom:6px;background:linear-gradient(135deg,#60a5fa,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .login-box p{color:var(--muted);margin-bottom:28px;font-size:.9rem}
+  .login-box input{width:100%;padding:12px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:1rem;margin-bottom:14px;outline:none;transition:.2s}
+  .login-box input:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-glow)}
+  .login-box button{width:100%;padding:13px;border-radius:8px;border:none;background:var(--primary);color:#fff;font-weight:600;font-size:1rem;cursor:pointer;transition:.2s}
+  .login-box button:hover{background:#2563eb;transform:translateY(-1px)}
+  .login-error{color:var(--danger);font-size:.85rem;margin-top:10px;display:none}
+
+  /* ── Layout ── */
+  #app{display:none}
+  .sidebar{position:fixed;left:0;top:0;bottom:0;width:240px;background:var(--surface);border-right:1px solid var(--border);padding:24px 16px;display:flex;flex-direction:column;gap:4px}
+  .sidebar-logo{display:flex;align-items:center;gap:10px;padding:12px;margin-bottom:16px}
+  .sidebar-logo span{font-size:1.5rem}
+  .sidebar-logo h1{font-size:1.1rem;font-weight:700;background:linear-gradient(135deg,#60a5fa,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;cursor:pointer;font-size:.9rem;color:var(--muted);transition:.15s;border:none;background:none;width:100%;text-align:left}
+  .nav-item:hover{background:var(--card);color:var(--text)}
+  .nav-item.active{background:rgba(59,130,246,.15);color:#60a5fa;font-weight:500}
+  .nav-item .icon{width:18px;text-align:center}
+  .status-dot{width:8px;height:8px;border-radius:50%;background:var(--danger);margin-left:auto;animation:pulse 2s infinite}
+  .status-dot.online{background:var(--success)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+  .main{margin-left:240px;padding:32px;min-height:100vh}
+  .page-header{margin-bottom:28px}
+  .page-header h2{font-size:1.5rem;font-weight:700}
+  .page-header p{color:var(--muted);font-size:.9rem;margin-top:4px}
+
+  /* ── Cards ── */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:20px}
+  .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px}
+  .stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px}
+  .stat-label{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .stat-value{font-size:2rem;font-weight:700;margin-top:6px}
+  .stat-value.blue{color:#60a5fa}
+  .stat-value.green{color:var(--success)}
+  .stat-value.red{color:var(--danger)}
+
+  /* ── Form ── */
+  .form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+  .form-group{display:flex;flex-direction:column;gap:6px}
+  label{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  input[type=text]{padding:10px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:.95rem;outline:none;transition:.2s;font-family:'Inter',sans-serif;width:100%}
+  input[type=text]:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-glow)}
+
+  .btn{padding:10px 20px;border-radius:8px;border:none;font-weight:600;font-size:.9rem;cursor:pointer;transition:.2s;display:inline-flex;align-items:center;gap:8px}
+  .btn-primary{background:var(--primary);color:#fff}
+  .btn-primary:hover{background:#2563eb;transform:translateY(-1px)}
+  .btn-danger{background:rgba(239,68,68,.15);color:var(--danger);border:1px solid rgba(239,68,68,.3)}
+  .btn-danger:hover{background:rgba(239,68,68,.25)}
+  .btn-sm{padding:6px 12px;font-size:.8rem}
+
+  /* ── Key display ── */
+  .key-display{background:var(--subtle);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-top:16px;display:none;align-items:center;justify-content:space-between}
+  .key-display.show{display:flex}
+  .key-text{font-family:'JetBrains Mono',monospace;font-size:1.1rem;color:#60a5fa;font-weight:600;letter-spacing:1px}
+  .copy-btn{background:var(--card);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:.8rem;transition:.2s}
+  .copy-btn:hover{background:var(--primary);border-color:var(--primary)}
+
+  /* ── Table ── */
+  .table-wrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;padding:10px 14px;font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+  td{padding:12px 14px;font-size:.9rem;border-bottom:1px solid rgba(30,45,74,.6)}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.75rem;font-weight:600}
+  .badge-active{background:rgba(16,185,129,.15);color:var(--success)}
+  .badge-revoked{background:rgba(239,68,68,.15);color:var(--danger)}
+  .badge-unbound{background:rgba(245,158,11,.15);color:var(--warn)}
+  .mono{font-family:'JetBrains Mono',monospace;font-size:.85rem}
+
+  /* ── Toast ── */
+  #toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;font-size:.9rem;font-weight:500;transform:translateY(80px);opacity:0;transition:.3s;pointer-events:none;z-index:999}
+  #toast.show{transform:translateY(0);opacity:1}
+  #toast.success{background:rgba(16,185,129,.9);color:#fff}
+  #toast.error{background:rgba(239,68,68,.9);color:#fff}
+
+  .section{display:none}
+  .section.active{display:block}
+
+  .loading{color:var(--muted);font-size:.9rem;padding:20px 0}
+  .empty{text-align:center;padding:40px;color:var(--muted)}
+</style>
+</head>
+<body>
+
+<!-- LOGIN GATE -->
+<div id="login-gate">
+  <div class="login-box">
+    <div style="font-size:2.5rem;margin-bottom:12px">⚡</div>
+    <h2>Control Tower</h2>
+    <p>Nexus Sync Enterprise Admin</p>
+    <input type="password" id="pwd-input" placeholder="Enter admin password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()">Unlock Dashboard</button>
+    <div class="login-error" id="login-err">Invalid password</div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <span>⚡</span>
+      <h1>Control Tower</h1>
+    </div>
+    <button class="nav-item active" onclick="showSection('dashboard',this)">
+      <span class="icon">📊</span> Dashboard
+    </button>
+    <button class="nav-item" onclick="showSection('generate',this)">
+      <span class="icon">🔑</span> Generate Key
+    </button>
+    <button class="nav-item" onclick="showSection('licenses',this); loadLicenses()">
+      <span class="icon">📋</span> All Licenses
+    </button>
+    <button class="nav-item" onclick="showSection('revoke',this)">
+      <span class="icon">🚫</span> Revoke Key
+    </button>
+    <div style="margin-top:auto;padding:12px 14px;font-size:.8rem;color:var(--muted);display:flex;align-items:center;gap:8px">
+      Server <span id="sidebar-dot" class="status-dot"></span>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <!-- DASHBOARD -->
+    <div id="sec-dashboard" class="section active">
+      <div class="page-header">
+        <h2>Dashboard</h2>
+        <p>Real-time overview of your Nexus Sync deployment</p>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Licenses</div>
+          <div class="stat-value blue" id="stat-total">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Active</div>
+          <div class="stat-value green" id="stat-active">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Revoked</div>
+          <div class="stat-value red" id="stat-revoked">—</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3 style="margin-bottom:16px;font-size:1rem">Server Status</h3>
+        <div id="server-status" style="color:var(--muted)">Checking...</div>
+      </div>
+      <div class="card">
+        <h3 style="margin-bottom:16px;font-size:1rem">Recent Licenses</h3>
+        <div id="recent-licenses" class="loading">Loading...</div>
+      </div>
+    </div>
+
+    <!-- GENERATE -->
+    <div id="sec-generate" class="section">
+      <div class="page-header">
+        <h2>Generate License Key</h2>
+        <p>Create a new hardware-bound license for a client</p>
+      </div>
+      <div class="card">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Client Name</label>
+            <input type="text" id="gen-client" placeholder="e.g. Ravi Kumar">
+          </div>
+          <div class="form-group">
+            <label>Custom Key (optional)</label>
+            <input type="text" id="gen-key" placeholder="Leave blank to auto-generate">
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="generateKey()">⚡ Generate & Register Key</button>
+
+        <div class="key-display" id="key-result">
+          <div>
+            <div style="font-size:.75rem;color:var(--muted);margin-bottom:4px">LICENSE KEY</div>
+            <div class="key-text" id="key-text">—</div>
+          </div>
+          <button class="copy-btn" onclick="copyKey()">📋 Copy</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ALL LICENSES -->
+    <div id="sec-licenses" class="section">
+      <div class="page-header">
+        <h2>All Licenses</h2>
+        <p>Manage all registered license keys</p>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>Client</th>
+                <th>Status</th>
+                <th>Hardware ID</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="license-table-body">
+              <tr><td colspan="5" class="empty">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- REVOKE -->
+    <div id="sec-revoke" class="section">
+      <div class="page-header">
+        <h2>Revoke License</h2>
+        <p>Immediately block a key from being used</p>
+      </div>
+      <div class="card">
+        <div class="form-group" style="max-width:400px;margin-bottom:16px">
+          <label>License Key</label>
+          <input type="text" id="revoke-key" placeholder="NEXUS-XXXX-XXXX-XXXX">
+        </div>
+        <button class="btn btn-danger" onclick="revokeKey()">🚫 Revoke License</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const ADMIN_PWD = "nexus-admin-2026";
+let authed = false;
+
+function doLogin(){
+  const pwd = document.getElementById('pwd-input').value;
+  if(pwd === ADMIN_PWD){
+    document.getElementById('login-gate').style.display='none';
+    document.getElementById('app').style.display='block';
+    authed = true;
+    loadDashboard();
+  } else {
+    document.getElementById('login-err').style.display='block';
+    document.getElementById('pwd-input').value='';
+  }
+}
+
+function showSection(name, btn){
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+  document.getElementById('sec-'+name).classList.add('active');
+  btn.classList.add('active');
+}
+
+function toast(msg, type='success'){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className='show '+type;
+  setTimeout(()=>t.className='',3000);
+}
+
+// ── Key generation ──────────────────────────────────────────
+function randKey(){
+  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const part=()=>Array.from({length:4},()=>chars[Math.floor(Math.random()*36)]).join('');
+  return `NEXUS-${part()}-${part()}-${part()}`;
+}
+
+async function generateKey(){
+  const client = document.getElementById('gen-client').value.trim();
+  if(!client){ toast('Enter a client name','error'); return; }
+  const key = document.getElementById('gen-key').value.trim() || randKey();
+
+  try{
+    const r = await fetch('/api/admin/add_license',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({key, client_name: client})
+    });
+    if(r.ok){
+      document.getElementById('key-text').textContent = key;
+      document.getElementById('key-result').classList.add('show');
+      toast('Key created & registered on server ✅');
+      document.getElementById('gen-client').value='';
+      document.getElementById('gen-key').value='';
+    } else {
+      const err = await r.json();
+      toast(err.detail || 'Server error','error');
+    }
+  } catch(e){
+    // Show key even if server unreachable
+    document.getElementById('key-text').textContent = key;
+    document.getElementById('key-result').classList.add('show');
+    toast('Key generated (server offline — register later)','error');
+  }
+}
+
+function copyKey(){
+  const k = document.getElementById('key-text').textContent;
+  navigator.clipboard.writeText(k);
+  toast('Key copied to clipboard 📋');
+}
+
+// ── Licenses ──────────────────────────────────────────────
+async function loadLicenses(){
+  const tbody = document.getElementById('license-table-body');
+  tbody.innerHTML='<tr><td colspan="5" class="empty">Loading...</td></tr>';
+  try{
+    const r = await fetch('/api/admin/list_licenses');
+    const data = await r.json();
+    if(!data.length){ tbody.innerHTML='<tr><td colspan="5" class="empty">No licenses yet</td></tr>'; return; }
+    tbody.innerHTML = data.map(l=>`
+      <tr>
+        <td class="mono">${l.key}</td>
+        <td>${l.client_name}</td>
+        <td><span class="badge ${l.is_active?'badge-active':'badge-revoked'}">${l.is_active?'Active':'Revoked'}</span></td>
+        <td><span class="badge badge-unbound">${l.hwid||'Unbound'}</span></td>
+        <td>${l.is_active?`<button class="btn btn-danger btn-sm" onclick="quickRevoke('${l.key}')">Revoke</button>`:'—'}</td>
+      </tr>`).join('');
+  } catch(e){
+    tbody.innerHTML='<tr><td colspan="5" class="empty">Cannot reach server</td></tr>';
+  }
+}
+
+async function quickRevoke(key){
+  if(!confirm(`Revoke ${key}?`)) return;
+  await doRevoke(key);
+  loadLicenses();
+}
+
+async function revokeKey(){
+  const key = document.getElementById('revoke-key').value.trim();
+  if(!key){ toast('Enter a key to revoke','error'); return; }
+  await doRevoke(key);
+  document.getElementById('revoke-key').value='';
+}
+
+async function doRevoke(key){
+  try{
+    const r = await fetch('/api/admin/revoke_license',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({key})
+    });
+    if(r.ok) toast(`Key ${key} revoked`);
+    else { const e=await r.json(); toast(e.detail,'error'); }
+  } catch(e){ toast('Cannot reach server','error'); }
+}
+
+// ── Dashboard ──────────────────────────────────────────────
+async function loadDashboard(){
+  // Server status
+  try{
+    const r = await fetch('/api/health');
+    const d = await r.json();
+    document.getElementById('server-status').innerHTML=
+      `<span style="color:var(--success)">● ONLINE</span> — ${d.service}`;
+    document.getElementById('sidebar-dot').classList.add('online');
+  } catch(e){
+    document.getElementById('server-status').innerHTML=
+      `<span style="color:var(--danger)">● OFFLINE</span>`;
+  }
+
+  // Stats & recent
+  try{
+    const r = await fetch('/api/admin/list_licenses');
+    const data = await r.json();
+    const active = data.filter(l=>l.is_active).length;
+    document.getElementById('stat-total').textContent=data.length;
+    document.getElementById('stat-active').textContent=active;
+    document.getElementById('stat-revoked').textContent=data.length-active;
+
+    const recent = data.slice(-5).reverse();
+    document.getElementById('recent-licenses').innerHTML = recent.length ?
+      recent.map(l=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div><div class="mono" style="font-size:.9rem">${l.key}</div><div style="color:var(--muted);font-size:.8rem">${l.client_name}</div></div>
+        <span class="badge ${l.is_active?'badge-active':'badge-revoked'}">${l.is_active?'Active':'Revoked'}</span>
+      </div>`).join('') : '<div class="empty">No licenses yet</div>';
+  } catch(e){
+    document.getElementById('stat-total').textContent='?';
+    document.getElementById('stat-active').textContent='?';
+    document.getElementById('stat-revoked').textContent='?';
+    document.getElementById('recent-licenses').textContent='Cannot reach server';
+  }
+}
+</script>
+</body>
+</html>
