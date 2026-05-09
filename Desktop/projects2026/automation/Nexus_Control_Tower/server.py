@@ -129,7 +129,7 @@ def check_update():
     # Returns a high version number so the client will always update if they click "Check for Updates"
     return {
         "latest_version": "99.99",
-        "download_url": "/download_latest"
+        "download_url": "/download/latest.exe"
     }
 
 @app.get("/download/{filename}")
