@@ -1,83 +1,121 @@
-import sqlite3
-import shutil
-import os
+"""
+=============================================================
+  NEXUS CONTROL TOWER — Admin CLI
+  Talks directly to the live API at devash.in
+=============================================================
+"""
 import sys
+import secrets
+import string
+import requests
 
-DB_FILE = "nexus_db.sqlite"
-ARTIFACTS_DIR = "artifacts"
+BASE_URL = "http://devash.in"   # ← your live server
 
-def get_db():
-    return sqlite3.connect(DB_FILE)
+# ─── Helpers ─────────────────────────────────────────────────────────────────
 
-def add_license():
-    key = input("Enter new license key (e.g., NEXUS-2026-ABC): ").strip()
-    client = input("Enter client name: ").strip()
-    
-    conn = get_db()
-    c = conn.cursor()
+def generate_key():
+    """Generate a random NEXUS-XXXX-XXXX-XXXX style key."""
+    alphabet = string.ascii_uppercase + string.digits
+    parts = ["".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(3)]
+    return "NEXUS-" + "-".join(parts)
+
+def api_post(endpoint, payload):
     try:
-        c.execute("INSERT INTO licenses (key, client_name) VALUES (?, ?)", (key, client))
-        conn.commit()
-        print(f"✅ License {key} created successfully for {client}.")
-    except sqlite3.IntegrityError:
-        print("❌ Error: License key already exists.")
-    conn.close()
+        r = requests.post(f"{BASE_URL}{endpoint}", json=payload, timeout=10)
+        return r
+    except requests.ConnectionError:
+        print(f"\n❌ Cannot reach {BASE_URL}. Is the server online?")
+        return None
 
-def upload_release():
-    version = input("Enter version string (e.g., 14.0): ").strip()
-    file_path = input("Enter full path to the executable or zip file: ").strip()
-    
-    if not os.path.exists(file_path):
-        print("❌ Error: File not found.")
+def api_get(endpoint):
+    try:
+        r = requests.get(f"{BASE_URL}{endpoint}", timeout=10)
+        return r
+    except requests.ConnectionError:
+        print(f"\n❌ Cannot reach {BASE_URL}. Is the server online?")
+        return None
+
+# ─── Actions ─────────────────────────────────────────────────────────────────
+
+def generate_license():
+    client = input("Enter client name: ").strip()
+    if not client:
+        print("❌ Client name cannot be empty.")
         return
-    
-    filename = os.path.basename(file_path)
-    dest_path = os.path.join(ARTIFACTS_DIR, filename)
-    
-    print(f"Copying {filename} to artifacts directory...")
-    shutil.copy2(file_path, dest_path)
-    
-    conn = get_db()
-    c = conn.cursor()
-    # Demote old latest
-    c.execute("UPDATE versions SET is_latest = 0 WHERE is_latest = 1")
-    # Insert new
-    c.execute("INSERT INTO versions (version_str, filename, is_latest) VALUES (?, ?, 1)", (version, filename))
-    conn.commit()
-    conn.close()
-    
-    print(f"✅ Release {version} ({filename}) uploaded and set as LATEST.")
+
+    key = generate_key()
+    r = api_post("/api/admin/add_license", {"key": key, "client_name": client})
+    if r and r.status_code == 200:
+        print(f"\n✅ License created successfully!")
+        print(f"   Client : {client}")
+        print(f"   Key    : {key}")
+        print(f"\n   👉 Send this key to your client. It will bind to their device on first use.\n")
+    elif r:
+        print(f"❌ Server error: {r.status_code} — {r.text}")
+
+
+def revoke_license():
+    key = input("Enter the license key to revoke: ").strip()
+    r = api_post("/api/admin/revoke_license", {"key": key})
+    if r and r.status_code == 200:
+        print(f"✅ License {key} has been revoked.")
+    elif r:
+        print(f"❌ Server error: {r.status_code} — {r.text}")
+
 
 def list_licenses():
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT key, client_name, hwid, is_active FROM licenses")
-    rows = c.fetchall()
-    print("\n--- ACTIVE LICENSES ---")
-    for r in rows:
-        status = "ACTIVE" if r[3] else "REVOKED"
-        hw = r[2] if r[2] else "Unbound"
-        print(f"Key: {r[0]} | Client: {r[1]} | Status: {status} | HWID: {hw}")
-    print("-----------------------\n")
-    conn.close()
+    r = api_get("/api/admin/list_licenses")
+    if r and r.status_code == 200:
+        data = r.json()
+        if not data:
+            print("\n  (No licenses found)")
+            return
+        print(f"\n{'KEY':<25} {'CLIENT':<20} {'STATUS':<10} {'HWID'}")
+        print("-" * 80)
+        for lic in data:
+            hw = lic.get("hwid") or "Unbound"
+            status = "ACTIVE" if lic.get("is_active") else "REVOKED"
+            print(f"{lic['key']:<25} {lic['client_name']:<20} {status:<10} {hw}")
+        print()
+    elif r:
+        print(f"❌ Server error: {r.status_code} — {r.text}")
+
+
+def check_server():
+    r = api_get("/api/health")
+    if r and r.status_code == 200:
+        print(f"✅ Server is ONLINE at {BASE_URL}")
+    elif r:
+        print(f"⚠️  Server responded with {r.status_code}")
+    else:
+        print(f"❌ Server is OFFLINE or unreachable")
+
+
+# ─── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     while True:
-        print("\n=== NEXUS CONTROL TOWER ADMIN ===")
-        print("1. Generate New License")
-        print("2. Upload New App Version (OTA)")
-        print("3. List All Licenses")
-        print("4. Exit")
-        
-        choice = input("Select an option: ")
-        
+        print("\n╔══════════════════════════════════════╗")
+        print("║   NEXUS CONTROL TOWER — ADMIN CLI    ║")
+        print("╠══════════════════════════════════════╣")
+        print("║  1. Generate New License Key         ║")
+        print("║  2. Revoke a License Key             ║")
+        print("║  3. List All Licenses                ║")
+        print("║  4. Check Server Status              ║")
+        print("║  5. Exit                             ║")
+        print("╚══════════════════════════════════════╝")
+
+        choice = input("Select option: ").strip()
+
         if choice == "1":
-            add_license()
+            generate_license()
         elif choice == "2":
-            upload_release()
+            revoke_license()
         elif choice == "3":
             list_licenses()
         elif choice == "4":
+            check_server()
+        elif choice == "5":
             sys.exit(0)
         else:
-            print("Invalid choice.")
+            print("Invalid option.")

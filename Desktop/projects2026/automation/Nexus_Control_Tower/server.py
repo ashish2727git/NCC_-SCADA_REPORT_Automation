@@ -34,9 +34,63 @@ def init_db():
 
 init_db()
 
+# ─── Admin Secret (simple protection) ─────────────────────────────────────
+ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "nexus-admin-2026")
+
 class LicenseCheck(BaseModel):
     key: str
     hwid: str
+
+class AdminLicense(BaseModel):
+    key: str
+    client_name: str
+    admin_secret: str = ""
+
+class RevokeRequest(BaseModel):
+    key: str
+    admin_secret: str = ""
+
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok", "service": "Nexus Control Tower"}
+
+@app.post("/api/admin/add_license")
+def admin_add_license(data: AdminLicense):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        c.execute("INSERT INTO licenses (key, client_name) VALUES (?, ?)", (data.key, data.client_name))
+        conn.commit()
+        return {"status": "success", "key": data.key, "client": data.client_name}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="License key already exists")
+    finally:
+        conn.close()
+
+@app.post("/api/admin/revoke_license")
+def admin_revoke_license(data: RevokeRequest):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE licenses SET is_active=0 WHERE key=?", (data.key,))
+    if conn.total_changes == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="License key not found")
+    conn.commit()
+    conn.close()
+    return {"status": "revoked", "key": data.key}
+
+@app.get("/api/admin/list_licenses")
+def admin_list_licenses():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT key, client_name, hwid, is_active FROM licenses")
+    rows = c.fetchall()
+    conn.close()
+    return [
+        {"key": r[0], "client_name": r[1], "hwid": r[2], "is_active": bool(r[3])}
+        for r in rows
+    ]
+
 
 @app.post("/api/verify_license")
 def verify_license(data: LicenseCheck):
