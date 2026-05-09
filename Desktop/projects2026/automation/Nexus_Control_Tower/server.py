@@ -1,13 +1,34 @@
 import os
 import sqlite3
-from fastapi import FastAPI, HTTPException, Request
+import logging
+from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 import uvicorn
 
+# Configure logging
+LOG_FILE = "nexus_server.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("NexusControlTower")
+
 ADMIN_HTML = os.path.join(os.path.dirname(__file__), "admin_dashboard.html")
 
 app = FastAPI(title="Nexus Control Tower")
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    client_ip = request.client.host if request.client else "Unknown"
+    logger.info(f"Incoming: {request.method} {request.url.path} from {client_ip}")
+    response = await call_next(request)
+    logger.info(f"Response: {response.status_code}")
+    return response
 
 DB_FILE = "nexus_db.sqlite"
 ARTIFACTS_DIR = "artifacts"
@@ -58,16 +79,31 @@ def health_check():
 
 @app.post("/api/admin/add_license")
 def admin_add_license(data: AdminLicense):
+    if data.admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Unauthorized")
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     try:
-        c.execute("INSERT INTO licenses (key, client_name) VALUES (?, ?)", (data.key, data.client_name))
+        c.execute("INSERT INTO licenses (key, client_name, hwid) VALUES (?, ?, '')", (data.key, data.client_name))
         conn.commit()
-        return {"status": "success", "key": data.key, "client": data.client_name}
     except sqlite3.IntegrityError:
-        raise HTTPException(status_code=409, detail="License key already exists")
-    finally:
         conn.close()
+        raise HTTPException(status_code=400, detail="License key already exists")
+    conn.close()
+    return {"status": "success", "message": f"License {data.key} added"}
+
+@app.post("/api/admin/logs")
+def get_admin_logs(data: RevokeRequest):
+    if data.admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    if not os.path.exists(LOG_FILE):
+        return {"logs": "Log file empty or not created yet."}
+    try:
+        with open(LOG_FILE, "r") as f:
+            lines = f.readlines()
+        return {"logs": "".join(lines[-100:])}
+    except Exception as e:
+        return {"logs": f"Error reading logs: {e}"}
 
 @app.post("/api/admin/revoke_license")
 def admin_revoke_license(data: RevokeRequest):

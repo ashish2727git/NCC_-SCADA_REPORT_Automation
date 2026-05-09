@@ -134,6 +134,9 @@
     <button class="nav-item" onclick="showSection('revoke',this)">
       <span class="icon">🚫</span> Revoke Key
     </button>
+    <button class="nav-item" onclick="showSection('logs',this)">
+      <span class="icon">📜</span> Server Logs
+    </button>
     <div style="margin-top:auto;padding:12px 14px;font-size:.8rem;color:var(--muted);display:flex;align-items:center;gap:8px">
       Server <span id="sidebar-dot" class="status-dot"></span>
     </div>
@@ -241,6 +244,22 @@
       </div>
     </div>
 
+    <!-- LOGS -->
+    <div id="sec-logs" class="section">
+      <div class="page-header">
+        <h2>Live Server Logs</h2>
+        <p>Monitor real-time API requests and server activity</p>
+      </div>
+      <div class="card">
+        <div style="background:#000; border-radius:8px; padding:16px; overflow:hidden;">
+          <textarea id="log-terminal" readonly style="width:100%; height:450px; background:#000; color:#22c55e; font-family:'JetBrains Mono',monospace; font-size:0.85rem; border:none; outline:none; resize:none;"></textarea>
+        </div>
+        <div style="margin-top:16px; display:flex; align-items:center; gap:12px;">
+          <span class="status-dot online"></span><span style="font-size:0.85rem; color:var(--muted);">Live polling (3s)</span>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -263,11 +282,42 @@ function doLogin(){
   }
 }
 
+let logTimer = null;
+
 function showSection(name, btn){
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
   document.getElementById('sec-'+name).classList.add('active');
   btn.classList.add('active');
+
+  if(name === 'logs') {
+     loadLogs();
+     if(!logTimer) logTimer = setInterval(loadLogs, 3000);
+  } else {
+     if(logTimer) { clearInterval(logTimer); logTimer = null; }
+  }
+}
+
+async function loadLogs(){
+  const term = document.getElementById('log-terminal');
+  try{
+    const r = await fetch('/api/admin/logs',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({key:"", admin_secret: ADMIN_PWD})
+    });
+    if(r.ok){
+      const data = await r.json();
+      // Only scroll if we are already at the bottom to prevent jumping
+      const isScrolledToBottom = term.scrollHeight - term.clientHeight <= term.scrollTop + 10;
+      term.value = data.logs;
+      if(isScrolledToBottom) term.scrollTop = term.scrollHeight;
+    } else {
+      term.value = "Failed to load logs.";
+    }
+  } catch(e){
+    term.value = "Cannot reach server.";
+  }
 }
 
 function toast(msg, type='success'){
