@@ -342,7 +342,7 @@ async function generateKey(){
     const r = await fetch('/api/admin/add_license',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({key, client_name: client})
+      body: JSON.stringify({key, client_name: client, admin_secret: ADMIN_PWD})
     });
     if(r.ok){
       document.getElementById('key-text').textContent = key;
@@ -407,7 +407,7 @@ async function doRevoke(key){
     const r = await fetch('/api/admin/revoke_license',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({key})
+      body: JSON.stringify({key, admin_secret: ADMIN_PWD})
     });
     if(r.ok) toast(`Key ${key} revoked`);
     else { const e=await r.json(); toast(e.detail,'error'); }
