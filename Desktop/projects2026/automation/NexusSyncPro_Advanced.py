@@ -48,9 +48,24 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
 PORTAL_URL = "http://122.186.209.30:8068/NCC/Sitapur/Sign-In-Users.php"
-MY_USER = os.getenv("PORTAL_USER")
-MY_PASS = os.getenv("PORTAL_PASS")
-MY_DISTRICT = os.getenv("PORTAL_DISTRICT", "Sitapur")
+CONFIG_FILE = os.path.join(_BASE_DIR, "nexus_config.json")
+
+def _load_app_config():
+    """Load credentials from nexus_config.json if it exists, else fall back to .env."""
+    import json
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE) as f:
+                cfg = json.load(f)
+            return cfg.get("portal_user") or os.getenv("PORTAL_USER"), \
+                   cfg.get("portal_pass") or os.getenv("PORTAL_PASS"), \
+                   cfg.get("district", "Sitapur"), \
+                   cfg.get("tg_token", "")
+        except Exception:
+            pass
+    return os.getenv("PORTAL_USER"), os.getenv("PORTAL_PASS"), os.getenv("PORTAL_DISTRICT", "Sitapur"), ""
+
+MY_USER, MY_PASS, MY_DISTRICT, _SAVED_TG_TOKEN = _load_app_config()
 
 CHROME_DATA_DIR = os.path.join(_BASE_DIR, "Nexus_Chrome_Profile")
 CONTACT_FILE = os.path.join(_BASE_DIR, "whatsapp_contacts.txt")
@@ -101,7 +116,10 @@ class NexusSyncPro(ctk.CTk):
         
         self.license_file = os.path.join(_BASE_DIR, ".nexus_license")
         if self._verify_saved_license():
-            self.boot_system()
+            if self._has_credentials():
+                self.boot_system()
+            else:
+                self.show_setup_wizard()
         else:
             self.show_license_screen()
 
@@ -156,22 +174,110 @@ class NexusSyncPro(ctk.CTk):
                 with open(self.license_file, "w") as f:
                     f.write(key)
             except Exception: pass
-            self.err_lbl.configure(text="✅ Activation Successful! Booting system...", text_color=CLR_GREEN)
-            
-            # First-time setup reminder popup
-            messagebox.showinfo("Nexus Sync | Setup Required", 
-                "System Activated Successfully!\n\n"
-                "IMPORTANT: Please ensure you have configured your Portal Credentials in the .env file. "
-                "You will also need to select your base data folder on the next screen to start automation.")
-                
-            self.after(1000, self.reboot_to_main)
+            self.err_lbl.configure(text="✅ Activation Successful!", text_color=CLR_GREEN)
+            self.after(800, self.show_setup_wizard)  # Go to credentials wizard next
         else:
             err_msg = getattr(self, 'last_license_error', "❌ Invalid Product Key.")
             self.err_lbl.configure(text=f"❌ {err_msg}", text_color="#ff4d4d")
 
+    def _has_credentials(self):
+        """Check if user has already completed the setup wizard."""
+        import json
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE) as f:
+                    cfg = json.load(f)
+                return bool(cfg.get("portal_user") and cfg.get("portal_pass"))
+            except Exception: pass
+        return False
+
+    def show_setup_wizard(self):
+        """Full-screen credentials setup wizard shown on first launch."""
+        for w in self.winfo_children(): w.destroy()
+
+        outer = ctk.CTkFrame(self, fg_color="#0f172a")
+        outer.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+        frame = ctk.CTkFrame(outer, fg_color=CLR_CARD, corner_radius=14, width=520)
+        frame.place(relx=0.5, rely=0.5, anchor="center")
+        frame.pack_propagate(False)
+
+        # Header
+        ctk.CTkLabel(frame, text="⚙️ FIRST-TIME SETUP", font=("Segoe UI", 22, "bold"), text_color=CLR_CYAN).pack(pady=(30, 4), padx=40)
+        ctk.CTkLabel(frame, text="Enter your portal credentials below.\nThese are saved securely on this device only.",
+                     font=("Segoe UI", 12), text_color=CLR_DIM, justify="center").pack(pady=(0, 20))
+
+        ctk.CTkFrame(frame, fg_color=CLR_BORDER, height=1).pack(fill="x", padx=30, pady=(0, 20))
+
+        # ── Portal credentials section ──
+        ctk.CTkLabel(frame, text="🌐  PORTAL LOGIN", font=("Segoe UI", 11, "bold"), text_color=CLR_GOLD).pack(anchor="w", padx=40)
+
+        self.setup_user = ctk.CTkEntry(frame, width=440, height=40, placeholder_text="Portal Username",
+                                        font=("Segoe UI", 13), fg_color="#f1f5f9", border_color=CLR_BORDER)
+        self.setup_user.pack(pady=(8, 6), padx=40)
+
+        self.setup_pass = ctk.CTkEntry(frame, width=440, height=40, placeholder_text="Portal Password",
+                                        font=("Segoe UI", 13), show="●", fg_color="#f1f5f9", border_color=CLR_BORDER)
+        self.setup_pass.pack(pady=(0, 6), padx=40)
+
+        self.setup_district = ctk.CTkEntry(frame, width=440, height=40, placeholder_text="District (e.g. Sitapur)",
+                                            font=("Segoe UI", 13), fg_color="#f1f5f9", border_color=CLR_BORDER)
+        self.setup_district.insert(0, "Sitapur")
+        self.setup_district.pack(pady=(0, 16), padx=40)
+
+        ctk.CTkFrame(frame, fg_color=CLR_BORDER, height=1).pack(fill="x", padx=30, pady=(0, 16))
+
+        # ── Telegram section ──
+        ctk.CTkLabel(frame, text="🤖  TELEGRAM BOT (Optional)", font=("Segoe UI", 11, "bold"), text_color=CLR_GOLD).pack(anchor="w", padx=40)
+        self.setup_tg = ctk.CTkEntry(frame, width=440, height=40, placeholder_text="Bot Token from @BotFather (leave blank to skip)",
+                                      font=("Segoe UI", 13), show="●", fg_color="#f1f5f9", border_color=CLR_BORDER)
+        self.setup_tg.pack(pady=(8, 16), padx=40)
+
+        # Error label
+        self.setup_err = ctk.CTkLabel(frame, text="", text_color="#ff4d4d", font=("Segoe UI", 12))
+        self.setup_err.pack(pady=(0, 6))
+
+        # Save button
+        ctk.CTkButton(frame, text="✅  SAVE & LAUNCH", width=440, height=48,
+                      font=("Segoe UI", 15, "bold"), fg_color=CLR_GREEN, hover_color="#059669",
+                      command=self.submit_setup).pack(pady=(0, 30), padx=40)
+
+    def submit_setup(self):
+        """Validate and save credentials from the setup wizard."""
+        import json
+        global MY_USER, MY_PASS, MY_DISTRICT
+
+        user = self.setup_user.get().strip()
+        pwd  = self.setup_pass.get().strip()
+        dist = self.setup_district.get().strip() or "Sitapur"
+        tg   = self.setup_tg.get().strip()
+
+        if not user or not pwd:
+            self.setup_err.configure(text="❌ Username and Password are required.")
+            return
+
+        cfg = {"portal_user": user, "portal_pass": pwd, "district": dist, "tg_token": tg}
+        try:
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(cfg, f, indent=2)
+        except Exception as e:
+            self.setup_err.configure(text=f"❌ Could not save: {e}")
+            return
+
+        # Update globals in-memory so the current session uses them immediately
+        MY_USER   = user
+        MY_PASS   = pwd
+        MY_DISTRICT = dist
+
+        self.boot_system()
+
     def reboot_to_main(self):
         for w in self.winfo_children(): w.destroy()
-        self.boot_system()
+        if self._has_credentials():
+            self.boot_system()
+        else:
+            self.show_setup_wizard()
+
 
     def boot_system(self):
         self.service_active = tk.BooleanVar(value=True)
@@ -454,10 +560,21 @@ class NexusSyncPro(ctk.CTk):
         self.setup_telegram_ui()
 
     def _load_creds(self):
+        import json
+        # 1. Try loading from the unified nexus_config.json (setup wizard)
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE) as f:
+                    cfg = json.load(f)
+                tok = cfg.get("tg_token", "")
+                if tok:
+                    self.token_var.set(tok)
+                    return
+            except Exception: pass
+        # 2. Fall back to old bot_credentials.json
         if os.path.exists(CRED_FILE):
             try:
                 with open(CRED_FILE) as f:
-                    import json
                     self.token_var.set(json.load(f).get("tg_token", ""))
             except Exception: pass
 
