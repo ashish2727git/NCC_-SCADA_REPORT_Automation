@@ -32,14 +32,14 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="pandas")
 
-# ── 📦 PORTABLE APPDATA RESOLVER ──
+# ── 📦 APPDATA RESOLVER ──
 import sys
-if getattr(sys, 'frozen', False):
-    # Running as PyInstaller .exe
-    _BASE_DIR = os.path.dirname(sys.executable)
-else:
-    # Running as standard .py
-    _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_APPDATA = os.getenv("APPDATA")
+if not _APPDATA:
+    _APPDATA = os.path.expanduser("~")
+
+_BASE_DIR = os.path.join(_APPDATA, "NexusSyncPro")
+os.makedirs(_BASE_DIR, exist_ok=True)
 
 # Load secure credentials explicitly from the app folder
 load_dotenv(os.path.join(_BASE_DIR, ".env"))
