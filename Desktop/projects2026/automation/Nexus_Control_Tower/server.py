@@ -70,19 +70,10 @@ def verify_license(data: LicenseCheck):
 
 @app.get("/api/update_check")
 def check_update():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT version_str, filename FROM versions WHERE is_latest=1")
-    row = c.fetchone()
-    conn.close()
-
-    if not row:
-        return {"latest_version": "0.0", "download_url": None}
-    
-    ver, fname = row
+    # Returns a high version number so the client will always update if they click "Check for Updates"
     return {
-        "latest_version": ver,
-        "download_url": f"/download/{fname}"
+        "latest_version": "99.99",
+        "download_url": "/download_latest"
     }
 
 @app.get("/download/{filename}")
@@ -127,17 +118,11 @@ def root_page():
 
 @app.get("/download_latest")
 def download_latest_route():
-    # Helper route for the HTML button
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT filename FROM versions WHERE is_latest=1")
-    row = c.fetchone()
-    conn.close()
-
-    if not row:
-        return HTMLResponse("<body style='background:#0f172a; color:white; text-align:center; padding-top:50px; font-family:sans-serif;'><h1>Server Error</h1><p>No releases uploaded to the Control Node yet.</p></body>", status_code=404)
+    file_path = os.path.join(ARTIFACTS_DIR, "latest.exe")
+    if not os.path.exists(file_path):
+        return HTMLResponse("<body style='background:#0f172a; color:white; text-align:center; padding-top:50px; font-family:sans-serif;'><h1>Server Error</h1><p>The build pipeline is still compiling the EXE. Please try again in 2 minutes.</p></body>", status_code=404)
     
-    return download_artifact(row[0])
+    return FileResponse(path=file_path, filename="NexusSyncPro_Enterprise.exe", media_type='application/octet-stream')
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
