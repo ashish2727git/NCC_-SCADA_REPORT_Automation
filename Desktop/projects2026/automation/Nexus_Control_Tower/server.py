@@ -52,6 +52,13 @@ def init_db():
                     filename TEXT,
                     is_latest INTEGER DEFAULT 0
                  )''')
+    # Table for remote commands
+    c.execute('''CREATE TABLE IF NOT EXISTS remote_commands (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    hwid TEXT,
+                    command TEXT,
+                    is_executed INTEGER DEFAULT 0
+                 )''')
     conn.commit()
     conn.close()
 
@@ -72,6 +79,14 @@ class AdminLicense(BaseModel):
 class RevokeRequest(BaseModel):
     key: str
     admin_secret: str = ""
+
+class CommandIssue(BaseModel):
+    hwid: str
+    command: str
+    admin_secret: str = ""
+
+class CommandAck(BaseModel):
+    command_id: int
 
 @app.get("/api/health")
 def health_check():
@@ -129,6 +144,34 @@ def admin_list_licenses():
         for r in rows
     ]
 
+@app.post("/api/admin/issue_command")
+def issue_remote_command(data: CommandIssue):
+    if data.admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT INTO remote_commands (hwid, command) VALUES (?, ?)", (data.hwid, data.command))
+    conn.commit()
+    conn.close()
+    return {"status": "success", "message": "Command queued for execution."}
+
+@app.get("/api/poll_commands")
+def poll_commands(hwid: str):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT id, command FROM remote_commands WHERE hwid=? AND is_executed=0 ORDER BY id ASC", (hwid,))
+    rows = c.fetchall()
+    conn.close()
+    return [{"id": r[0], "command": r[1]} for r in rows]
+
+@app.post("/api/ack_command")
+def ack_command(data: CommandAck):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE remote_commands SET is_executed=1 WHERE id=?", (data.command_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "success"}
 
 @app.post("/api/verify_license")
 def verify_license(data: LicenseCheck):

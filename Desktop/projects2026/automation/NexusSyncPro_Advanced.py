@@ -307,6 +307,9 @@ class NexusSyncPro(ctk.CTk):
         # ── OTA Update Check ──
         threading.Thread(target=self.check_for_updates, daemon=True).start()
 
+        # ── Remote Command Listener ──
+        threading.Thread(target=self._remote_command_listener, daemon=True).start()
+
         # ── INITIALIZE WORKSPACE (Auto-selects last location) ──
         self.watch_folder = self._select_workspace_folder()
 
@@ -416,6 +419,31 @@ class NexusSyncPro(ctk.CTk):
             self.safe_log_update("[SYS] Configured Daily Re-open Task for 08:00 AM (Standard User).")
         except Exception as e:
             self.safe_log_update(f"[SYS] ⚠️ Task Scheduler fail: {str(e)}")
+
+    def _remote_command_listener(self):
+        """Polls the cloud server for commands issued by the Admin."""
+        import time, requests
+        hwid = self._get_hwid()
+        while True:
+            try:
+                r = requests.get(f"http://devash.in/api/poll_commands?hwid={hwid}", timeout=5)
+                if r.status_code == 200:
+                    commands = r.json()
+                    for cmd in commands:
+                        c_id = cmd["id"]
+                        c_text = cmd["command"]
+                        self.safe_log_update(f"[REMOTE] Received cloud command: {c_text}")
+                        
+                        if c_text == "PULL_DATA":
+                            self.trigger_manual_pull()
+                        elif c_text == "BROADCAST":
+                            self.trigger_manual_send()
+                            
+                        # Acknowledge execution so it's removed from queue
+                        requests.post("http://devash.in/api/ack_command", json={"command_id": c_id}, timeout=5)
+            except Exception:
+                pass # Fail silently if server is offline
+            time.sleep(15)
 
     def auto_close_app(self):
         """End of day clean shutdown."""
