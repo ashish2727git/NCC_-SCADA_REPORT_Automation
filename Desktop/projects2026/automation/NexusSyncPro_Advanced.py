@@ -313,7 +313,7 @@ class NexusSyncPro(ctk.CTk):
         # ── INITIALIZE WORKSPACE (Auto-selects last location) ──
         self.watch_folder = self._select_workspace_folder()
 
-        self.safe_log_update("[SYS] System Architecture v13.1 (Production Ready) Initialized.")
+        self.safe_log_update("[SYS] System Architecture v14.0 (Production Ready) Initialized.")
         self.safe_log_update(f"[SYS] Daily data directory mapped: {self.watch_folder}")
         if os.listdir(self.watch_folder):
             self.safe_log_update(f"[SYS] Existing files detected in today's folder — reusing workspace.")
@@ -379,7 +379,7 @@ class NexusSyncPro(ctk.CTk):
             if resp.status_code == 200:
                 data = resp.json()
                 latest_ver = data.get("latest_version", "0.0")
-                current_ver = "13.1"
+                current_ver = "14.0"
                 
                 if float(latest_ver) > float(current_ver):
                     self.safe_log_update(f"[OTA] Update available: v{latest_ver}. Automatically downloading...")
