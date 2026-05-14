@@ -1,6 +1,9 @@
 import os
 import sqlite3
 import logging
+import threading
+import time
+import requests as http_client
 from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
@@ -66,6 +69,13 @@ init_db()
 
 # ─── Admin Secret (simple protection) ─────────────────────────────────────
 ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "nexus-admin-2026")
+
+# ─── Telegram Bot Config ───────────────────────────────────────────────────
+# Set these as environment variables in your Docker/ECS task definition:
+#   TG_BOT_TOKEN  : your bot token from @BotFather
+#   TG_ADMIN_CHAT : your personal Telegram chat ID (get it from @userinfobot)
+TG_BOT_TOKEN  = os.environ.get("TG_BOT_TOKEN", "")
+TG_ADMIN_CHAT = os.environ.get("TG_ADMIN_CHAT", "")
 
 class LicenseCheck(BaseModel):
     key: str
@@ -262,6 +272,134 @@ def download_latest_route():
 def admin_dashboard():
     with open(ADMIN_HTML, "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
+
+
+# ═══════════════════════════════════════════════════════════════
+# ⚡ TELEGRAM ADMIN BOT
+# ═══════════════════════════════════════════════════════════════
+def _tg_send(chat_id: str, text: str):
+    """Send a message to a Telegram chat."""
+    try:
+        http_client.post(
+            f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+            timeout=5
+        )
+    except Exception as e:
+        logger.warning(f"[TG] Failed to send message: {e}")
+
+def _tg_get_clients():
+    """Return list of bound, active clients from DB."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT client_name, hwid FROM licenses WHERE is_active=1 AND hwid != ''")
+    rows = c.fetchall()
+    conn.close()
+    return rows  # [(client_name, hwid), ...]
+
+def _tg_queue_command(hwid: str, command: str):
+    """Insert a remote command into the DB queue."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT INTO remote_commands (hwid, command) VALUES (?, ?)", (hwid, command))
+    conn.commit()
+    conn.close()
+
+def start_telegram_bot():
+    """Long-polling Telegram bot that runs as a background daemon thread.""""
+    if not TG_BOT_TOKEN or not TG_ADMIN_CHAT:
+        logger.warning("[TG] TG_BOT_TOKEN or TG_ADMIN_CHAT not set. Telegram bot disabled.")
+        return
+
+    logger.info("[TG] Telegram Admin Bot started.")
+    _tg_send(TG_ADMIN_CHAT, "✅ *Nexus Control Tower* is online and listening for commands.")
+
+    # Command map for multi-step interactions
+    pending_cmd = {}  # {chat_id: {"action": "pull"|"broadcast", "clients": [...]}}
+    offset = 0
+
+    while True:
+        try:
+            resp = http_client.get(
+                f"https://api.telegram.org/bot{TG_BOT_TOKEN}/getUpdates",
+                params={"timeout": 20, "offset": offset},
+                timeout=25
+            )
+            updates = resp.json().get("result", [])
+        except Exception:
+            time.sleep(5)
+            continue
+
+        for update in updates:
+            offset = update["update_id"] + 1
+            msg = update.get("message", {})
+            chat_id = str(msg.get("chat", {}).get("id", ""))
+            text = msg.get("text", "").strip()
+
+            # Security: only respond to the designated admin chat
+            if chat_id != TG_ADMIN_CHAT:
+                _tg_send(chat_id, "⛔ Unauthorized.")
+                continue
+
+            if text == "/start" or text == "/help":
+                _tg_send(chat_id,
+                    "*⚡ Nexus Admin Bot*\n\n"
+                    "`/clients` — List all connected machines\n"
+                    "`/pull <number>` — Trigger Pull Data on a client\n"
+                    "`/broadcast <number>` — Trigger Report Broadcast on a client\n"
+                    "`/pullall` — Pull Data on ALL clients\n"
+                    "`/broadcastall` — Broadcast on ALL clients\n"
+                    "`/status` — Server health check"
+                )
+
+            elif text == "/clients":
+                clients = _tg_get_clients()
+                if not clients:
+                    _tg_send(chat_id, "📭 No active bound clients found.")
+                else:
+                    lines = [f"`{i+1}.` *{name}* — `{hwid[:12]}...`" for i, (name, hwid) in enumerate(clients)]
+                    _tg_send(chat_id, "*Connected Clients:*\n" + "\n".join(lines))
+
+            elif text == "/status":
+                _tg_send(chat_id, "✅ *Control Tower is ONLINE*\nAll systems operational.")
+
+            elif text.startswith("/pull ") or text.startswith("/broadcast "):
+                parts = text.split()
+                action = "PULL_DATA" if parts[0] == "/pull" else "BROADCAST"
+                try:
+                    idx = int(parts[1]) - 1
+                    clients = _tg_get_clients()
+                    if idx < 0 or idx >= len(clients):
+                        _tg_send(chat_id, "❌ Invalid client number. Use /clients to see the list.")
+                    else:
+                        name, hwid = clients[idx]
+                        _tg_queue_command(hwid, action)
+                        emoji = "📥" if action == "PULL_DATA" else "📤"
+                        _tg_send(chat_id, f"{emoji} Command *{action}* queued for *{name}*.\nThey will execute it within 15 seconds.")
+                except (ValueError, IndexError):
+                    _tg_send(chat_id, "❌ Usage: `/pull 1` or `/broadcast 2` (use /clients to get numbers)")
+
+            elif text == "/pullall":
+                clients = _tg_get_clients()
+                for name, hwid in clients:
+                    _tg_queue_command(hwid, "PULL_DATA")
+                _tg_send(chat_id, f"📥 *PULL DATA* queued for all *{len(clients)}* clients.")
+
+            elif text == "/broadcastall":
+                clients = _tg_get_clients()
+                for name, hwid in clients:
+                    _tg_queue_command(hwid, "BROADCAST")
+                _tg_send(chat_id, f"📤 *BROADCAST* queued for all *{len(clients)}* clients.")
+
+            else:
+                _tg_send(chat_id, "❓ Unknown command. Type /help for available commands.")
+
+@app.on_event("startup")
+def on_startup():
+    if TG_BOT_TOKEN and TG_ADMIN_CHAT:
+        t = threading.Thread(target=start_telegram_bot, daemon=True)
+        t.start()
+        logger.info("[TG] Bot thread launched.")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
