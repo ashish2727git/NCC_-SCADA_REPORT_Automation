@@ -310,6 +310,9 @@ class NexusSyncPro(ctk.CTk):
         # ── Remote Command Listener ──
         threading.Thread(target=self._remote_command_listener, daemon=True).start()
 
+        # ── What's New Popup (shown once per version) ──
+        self.after(1500, self._check_whats_new)
+
         # ── INITIALIZE WORKSPACE (Auto-selects last location) ──
         self.watch_folder = self._select_workspace_folder()
 
@@ -325,6 +328,84 @@ class NexusSyncPro(ctk.CTk):
         
         threading.Thread(target=self.run_scheduler, daemon=True).start()
         threading.Thread(target=self.startup_check, daemon=True).start()
+
+    def _check_whats_new(self):
+        """Show What's New popup once per version after an update."""
+        CURRENT_VER = "14.0"
+        ver_file = os.path.join(_BASE_DIR, ".last_seen_version")
+        try:
+            if os.path.exists(ver_file):
+                with open(ver_file, "r") as f:
+                    last_seen = f.read().strip()
+                if last_seen == CURRENT_VER:
+                    return  # Already seen this version, don't show
+            # Show the popup
+            self._show_whats_new(CURRENT_VER)
+            # Record that we've shown it
+            with open(ver_file, "w") as f:
+                f.write(CURRENT_VER)
+        except Exception:
+            pass
+
+    def _show_whats_new(self, version):
+        """Display a premium What's New popup for the current version."""
+        popup = ctk.CTkToplevel(self)
+        popup.title(f"What's New in v{version}")
+        popup.attributes("-topmost", True)
+        popup.grab_set()
+        popup.configure(fg_color="#0f172a")
+
+        # Center the popup
+        pw, ph = 520, 540
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        popup.geometry(f"{pw}x{ph}+{(sw-pw)//2}+{(sh-ph)//2}")
+        popup.resizable(False, False)
+
+        # Header
+        header = ctk.CTkFrame(popup, fg_color="#1e3a5f", corner_radius=0)
+        header.pack(fill="x")
+        ctk.CTkLabel(header, text="⚡", font=("Segoe UI", 36)).pack(pady=(20, 0))
+        ctk.CTkLabel(header, text=f"What's New in v{version}",
+                     font=("Segoe UI", 22, "bold"), text_color="#60a5fa").pack(pady=(4, 4))
+        ctk.CTkLabel(header, text="Nexus Sync Enterprise Suite",
+                     font=("Segoe UI", 11), text_color="#94a3b8").pack(pady=(0, 16))
+
+        # Features list
+        scroll = ctk.CTkScrollableFrame(popup, fg_color="#0f172a", height=320)
+        scroll.pack(fill="both", expand=True, padx=20, pady=16)
+
+        features = [
+            ("📡", "Telegram Remote Control",
+             "Trigger Pull Data or Broadcast reports on any field machine directly from your phone via Telegram — without being in the office."),
+            ("🔐", "OTP Command Verification",
+             "Every remote Telegram command now requires a unique 6-digit One-Time Password that expires in 60 seconds, preventing accidental or unauthorized actions."),
+            ("🖥", "Admin Desktop Control Panel",
+             "New Nexus Admin Control app lets you start/stop the cloud server, generate/revoke licenses, and monitor live server logs — all without opening a browser."),
+            ("🛡", "Hardware-Bound Licensing",
+             "Each license key now permanently locks to your specific PC hardware. The same key cannot be used on a second device."),
+            ("📂", "Secure AppData Storage",
+             "All configuration files and credentials are now stored invisibly in your system's AppData folder instead of visible Downloads locations."),
+        ]
+
+        for icon, title, desc in features:
+            row = ctk.CTkFrame(scroll, fg_color="#1e293b", corner_radius=10)
+            row.pack(fill="x", pady=6, padx=4)
+            top = ctk.CTkFrame(row, fg_color="transparent")
+            top.pack(fill="x", padx=14, pady=(12, 2))
+            ctk.CTkLabel(top, text=icon, font=("Segoe UI", 20), width=30).pack(side="left")
+            ctk.CTkLabel(top, text=title, font=("Segoe UI", 13, "bold"),
+                         text_color="#e2e8f0").pack(side="left", padx=8)
+            ctk.CTkLabel(row, text=desc, font=("Segoe UI", 11),
+                         text_color="#94a3b8", wraplength=440, justify="left").pack(
+                             padx=14, pady=(0, 12), anchor="w")
+
+        # Close button
+        ctk.CTkButton(
+            popup, text="Got it — Let's Go! 🚀",
+            font=("Segoe UI", 13, "bold"), height=44,
+            fg_color="#3b82f6", hover_color="#2563eb",
+            command=popup.destroy
+        ).pack(fill="x", padx=20, pady=(0, 20))
 
     def _select_workspace_folder(self, force_prompt=False):
         """Pick a base folder. Auto-selects if config exists unless force_prompt is True."""
