@@ -215,9 +215,9 @@ def verify_license(data: LicenseCheck):
 
 @app.get("/api/update_check")
 def check_update():
-    # Returns a high version number so the client will always update if they click "Check for Updates"
+    # Returns the actual latest version so clients only update when necessary
     return {
-        "latest_version": "99.99",
+        "latest_version": "14.0",
         "download_url": "/download/latest.exe"
     }
 
