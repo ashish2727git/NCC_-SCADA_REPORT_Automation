@@ -10,6 +10,9 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret2 = collect_all('selenium')
 datas += tmp_ret2[0]; binaries += tmp_ret2[1]; hiddenimports += tmp_ret2[2]
 
+tmp_ret3 = collect_all('pandas')
+datas += tmp_ret3[0]; binaries += tmp_ret3[1]; hiddenimports += tmp_ret3[2]
+
 
 a = Analysis(
     ['NexusSyncPro_Advanced.py'],
