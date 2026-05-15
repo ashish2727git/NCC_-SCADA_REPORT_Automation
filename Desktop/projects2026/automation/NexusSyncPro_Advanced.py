@@ -407,6 +407,108 @@ class NexusSyncPro(ctk.CTk):
             command=popup.destroy
         ).pack(fill="x", padx=20, pady=(0, 20))
 
+    def manual_check_updates(self):
+        """Manually triggered update check from sidebar button."""
+        CURRENT_VER = "14.0"
+        try:
+            resp = requests.get("http://devash.in/api/update_check", timeout=6)
+            if resp.status_code == 200:
+                data = resp.json()
+                latest_ver = data.get("latest_version", "0.0")
+                dl_url = data.get("download_url", "")
+                has_update = float(latest_ver) > float(CURRENT_VER)
+                self.after(0, lambda: self._show_update_status_popup(CURRENT_VER, latest_ver, dl_url, has_update, online=True))
+            else:
+                self.after(0, lambda: self._show_update_status_popup(CURRENT_VER, "?", "", False, online=False))
+        except Exception:
+            self.after(0, lambda: self._show_update_status_popup(CURRENT_VER, "?", "", False, online=False))
+
+    def _show_update_status_popup(self, current_ver, latest_ver, dl_url, has_update, online=True):
+        """Show a rich update status popup."""
+        popup = ctk.CTkToplevel(self)
+        popup.title("Software Update")
+        popup.attributes("-topmost", True)
+        popup.grab_set()
+        popup.configure(fg_color="#0f172a")
+        pw, ph = 500, 540
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        popup.geometry(f"{pw}x{ph}+{(sw-pw)//2}+{(sh-ph)//2}")
+        popup.resizable(False, False)
+
+        # ── Header ──
+        hdr_color = "#14532d" if (online and not has_update) else ("#1e3a5f" if has_update else "#3b1f00")
+        header = ctk.CTkFrame(popup, fg_color=hdr_color, corner_radius=0)
+        header.pack(fill="x")
+
+        if not online:
+            icon, title, subtitle = "⚠️", "Server Unreachable", "Could not connect to the update server"
+            hdr_text_color = "#fbbf24"
+        elif has_update:
+            icon, title, subtitle = "🚀", f"Update Available — v{latest_ver}", "A new version of Nexus Sync is ready"
+            hdr_text_color = "#60a5fa"
+        else:
+            icon, title, subtitle = "✅", "You're Up to Date!", f"Nexus Sync v{current_ver} is the latest version"
+            hdr_text_color = "#4ade80"
+
+        ctk.CTkLabel(header, text=icon, font=("Segoe UI", 32)).pack(pady=(18, 0))
+        ctk.CTkLabel(header, text=title, font=("Segoe UI", 20, "bold"), text_color=hdr_text_color).pack(pady=(4, 2))
+        ctk.CTkLabel(header, text=subtitle, font=("Segoe UI", 11), text_color="#94a3b8").pack(pady=(0, 14))
+
+        # ── Version badge row ──
+        badge_frame = ctk.CTkFrame(popup, fg_color="#1e293b", corner_radius=8)
+        badge_frame.pack(fill="x", padx=20, pady=12)
+        left = ctk.CTkFrame(badge_frame, fg_color="transparent")
+        left.pack(side="left", padx=20, pady=10)
+        ctk.CTkLabel(left, text="INSTALLED", font=("Segoe UI", 9, "bold"), text_color="#64748b").pack(anchor="w")
+        ctk.CTkLabel(left, text=f"v{current_ver}", font=("Segoe UI", 20, "bold"), text_color="#e2e8f0").pack(anchor="w")
+        if online:
+            right = ctk.CTkFrame(badge_frame, fg_color="transparent")
+            right.pack(side="right", padx=20, pady=10)
+            ctk.CTkLabel(right, text="LATEST", font=("Segoe UI", 9, "bold"), text_color="#64748b").pack(anchor="e")
+            color = "#4ade80" if not has_update else "#60a5fa"
+            ctk.CTkLabel(right, text=f"v{latest_ver}", font=("Segoe UI", 20, "bold"), text_color=color).pack(anchor="e")
+
+        # ── What's New list ──
+        ctk.CTkLabel(popup, text="📌  WHAT'S IN v14.0", font=("Segoe UI", 11, "bold"),
+                     text_color="#94a3b8").pack(anchor="w", padx=24, pady=(4, 0))
+        scroll = ctk.CTkScrollableFrame(popup, fg_color="transparent", height=190)
+        scroll.pack(fill="x", padx=20, pady=(4, 0))
+
+        features = [
+            ("📡", "Telegram Remote Control — trigger field machines from your phone"),
+            ("🔐", "OTP Command Verification — 6-digit one-time code before every action"),
+            ("🖥", "Admin Desktop Control Panel — manage licenses & server without browser"),
+            ("🛡", "Hardware-Bound Licensing — key locks to your specific machine"),
+            ("📂", "Secure AppData Storage — invisible, safe credential management"),
+            ("🔄", "Overnight Auto-Update — updates apply silently at 7PM shutdown"),
+        ]
+        for icon_f, text_f in features:
+            row = ctk.CTkFrame(scroll, fg_color="#1e293b", corner_radius=8)
+            row.pack(fill="x", pady=3)
+            ctk.CTkLabel(row, text=icon_f, font=("Segoe UI", 14), width=28).pack(side="left", padx=(10, 4), pady=8)
+            ctk.CTkLabel(row, text=text_f, font=("Segoe UI", 11), text_color="#cbd5e1",
+                         wraplength=380, justify="left").pack(side="left", padx=4, pady=8)
+
+        # ── Action buttons ──
+        btn_frame = ctk.CTkFrame(popup, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=12)
+
+        if has_update:
+            def _start_download():
+                dl_btn.configure(state="disabled", text="⏳ Downloading...")
+                threading.Thread(target=self.check_for_updates, daemon=True).start()
+                popup.after(2000, popup.destroy)
+            dl_btn = ctk.CTkButton(btn_frame, text="⬇ Download & Install",
+                font=("Segoe UI", 13, "bold"), height=44, fg_color="#3b82f6",
+                hover_color="#2563eb", command=_start_download)
+            dl_btn.pack(fill="x", pady=(0, 6))
+
+        close_text = "Close" if not has_update else "Later"
+        ctk.CTkButton(btn_frame, text=close_text,
+            font=("Segoe UI", 12), height=36,
+            fg_color="transparent", border_width=1, border_color=CLR_BORDER,
+            text_color=CLR_DIM, command=popup.destroy).pack(fill="x")
+
     def _select_workspace_folder(self, force_prompt=False):
         """Pick a base folder. Auto-selects if config exists unless force_prompt is True."""
         config_path = os.path.join(_BASE_DIR, ".nexus_workspace_path")
@@ -623,8 +725,22 @@ del "%~f0"
         ctk.CTkButton(self.sidebar_scroll, text="🗑 Remove Selected", text_color="#ff4d4d",
                       fg_color="transparent", command=self.remove_contact).pack(pady=(0, 10))
 
+        # ── VERSION / UPDATE BUTTON ──
+        ctk.CTkButton(
+            self.sidebar,
+            text="🔄 Check for Updates",
+            font=("Segoe UI", 10, "bold"),
+            fg_color="transparent",
+            border_width=1,
+            border_color=CLR_BORDER,
+            text_color=CLR_DIM,
+            height=30,
+            command=lambda: threading.Thread(target=self.manual_check_updates, daemon=True).start()
+        ).pack(side="bottom", fill="x", padx=20, pady=(0, 6))
+
         # ── DEVELOPER CREDIT ──
-        ctk.CTkLabel(self.sidebar, text="DEVELOPED BY: ASHISH KUMAR", font=("Segoe UI", 9, "italic"), text_color=CLR_DIM).pack(side="bottom", pady=20)
+        ctk.CTkLabel(self.sidebar, text="DEVELOPED BY: ASHISH KUMAR", font=("Segoe UI", 9, "italic"), text_color=CLR_DIM).pack(side="bottom", pady=(10, 4))
+        ctk.CTkLabel(self.sidebar, text="v14.0 • Enterprise Suite", font=("Segoe UI", 9), text_color=CLR_DIM).pack(side="bottom", pady=(0, 0))
 
         # --- MAIN TABVIEW ---
         self.main_tabs = ctk.CTkTabview(self, fg_color="transparent")
