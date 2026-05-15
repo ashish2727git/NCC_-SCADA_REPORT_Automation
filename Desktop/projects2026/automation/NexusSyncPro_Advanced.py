@@ -409,7 +409,7 @@ class NexusSyncPro(ctk.CTk):
 
     def manual_check_updates(self):
         """Manually triggered update check from sidebar button."""
-        CURRENT_VER = "14.0"
+        CURRENT_VER = "14.1"
         try:
             resp = requests.get("http://devash.in/api/update_check", timeout=6)
             if resp.status_code == 200:
@@ -607,7 +607,7 @@ del "%~f0"
             if resp.status_code == 200:
                 data = resp.json()
                 latest_ver = data.get("latest_version", "0.0")
-                current_ver = "14.0"
+                current_ver = "14.1"
 
                 if float(latest_ver) > float(current_ver):
                     self.safe_log_update(f"[OTA] Update available: v{latest_ver}. Downloading silently...")
@@ -818,7 +818,7 @@ del "%~f0"
 
         # ── DEVELOPER CREDIT ──
         ctk.CTkLabel(self.sidebar, text="DEVELOPED BY: ASHISH KUMAR", font=("Segoe UI", 9, "italic"), text_color=CLR_DIM).pack(side="bottom", pady=(10, 4))
-        ctk.CTkLabel(self.sidebar, text="v14.0 • Enterprise Suite", font=("Segoe UI", 9), text_color=CLR_DIM).pack(side="bottom", pady=(0, 0))
+        ctk.CTkLabel(self.sidebar, text="v14.1 • Enterprise Suite", font=("Segoe UI", 9), text_color=CLR_DIM).pack(side="bottom", pady=(0, 0))
 
         # --- MAIN TABVIEW ---
         self.main_tabs = ctk.CTkTabview(self, fg_color="transparent")

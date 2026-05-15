@@ -157,7 +157,7 @@ jobs:
 
       - name: Inject Secrets
         run: |
-          jq '.containerDefinitions[0].environment += [{"name": "TG_BOT_TOKEN", "value": "${{ secrets.TG_BOT_TOKEN }}"}, {"name": "TG_ADMIN_CHAT", "value": "${{ secrets.TG_ADMIN_CHAT }}"}, {"name": "GODADDY_API_KEY", "value": "${{ secrets.GODADDY_API_KEY }}"}]' task-definition.json > task-definition-injected.json
+          jq '.containerDefinitions[0].environment += [{"name": "TG_BOT_TOKEN", "value": "${{ secrets.TG_BOT_TOKEN }}"}, {"name": "TG_ADMIN_CHAT", "value": "${{ secrets.TG_ADMIN_CHAT }}"}, {"name": "GODADDY_API_KEY", "value": "${{ secrets.GODADDY_API_KEY }}"}, {"name": "AWS_ACCESS_KEY_ID", "value": "${{ secrets.AWS_ACCESS_KEY_ID }}"}, {"name": "AWS_SECRET_ACCESS_KEY", "value": "${{ secrets.AWS_SECRET_ACCESS_KEY }}"}]' task-definition.json > task-definition-injected.json
 
       - name: Update ECS task definition with new image
         id: task-def

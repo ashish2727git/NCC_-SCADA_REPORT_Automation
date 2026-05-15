@@ -8,6 +8,8 @@ from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 import uvicorn
+import boto3
+from botocore.exceptions import ClientError
 
 # Configure logging
 LOG_FILE = "nexus_server.log"
@@ -35,8 +37,25 @@ async def log_requests(request: Request, call_next):
 
 DB_FILE = "nexus_db.sqlite"
 ARTIFACTS_DIR = "artifacts"
+S3_BUCKET = "nexus-sync-artifacts-802346121670"
 
 os.makedirs(ARTIFACTS_DIR, exist_ok=True)
+
+def sync_db_from_s3():
+    try:
+        s3 = boto3.client('s3', region_name='ap-south-1')
+        s3.download_file(S3_BUCKET, DB_FILE, DB_FILE)
+        logger.info("[DB] Successfully restored database from S3.")
+    except ClientError as e:
+        logger.warning(f"[DB] No existing database on S3 or download failed: {e}")
+
+def sync_db_to_s3():
+    try:
+        s3 = boto3.client('s3', region_name='ap-south-1')
+        s3.upload_file(DB_FILE, S3_BUCKET, DB_FILE)
+        logger.info("[DB] Successfully backed up database to S3.")
+    except Exception as e:
+        logger.error(f"[DB] Failed to backup database to S3: {e}")
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -163,6 +182,7 @@ def issue_remote_command(data: CommandIssue):
     c.execute("INSERT INTO remote_commands (hwid, command) VALUES (?, ?)", (data.hwid, data.command))
     conn.commit()
     conn.close()
+    threading.Thread(target=sync_db_to_s3, daemon=True).start()
     return {"status": "success", "message": "Command queued for execution."}
 
 @app.get("/api/poll_commands")
@@ -181,6 +201,7 @@ def ack_command(data: CommandAck):
     c.execute("UPDATE remote_commands SET is_executed=1 WHERE id=?", (data.command_id,))
     conn.commit()
     conn.close()
+    threading.Thread(target=sync_db_to_s3, daemon=True).start()
     return {"status": "success"}
 
 @app.post("/api/verify_license")
@@ -205,6 +226,7 @@ def verify_license(data: LicenseCheck):
         c.execute("UPDATE licenses SET hwid=? WHERE key=?", (data.hwid, data.key))
         conn.commit()
         conn.close()
+        threading.Thread(target=sync_db_to_s3, daemon=True).start()
         return {"status": "success", "message": "License activated and bound to this device."}
     
     # If hwid exists, it must match
@@ -217,7 +239,7 @@ def verify_license(data: LicenseCheck):
 def check_update():
     # Returns the actual latest version so clients only update when necessary
     return {
-        "latest_version": "14.0",
+        "latest_version": "14.1",
         "download_url": "/download/latest.exe"
     }
 
@@ -628,6 +650,10 @@ def update_godaddy_dns():
 
 @app.on_event("startup")
 def on_startup():
+    # Restore DB from S3 before anything else
+    sync_db_from_s3()
+    init_db()
+
     # Update GoDaddy DNS to point devash.in to this container's new ephemeral IP
     threading.Thread(target=update_godaddy_dns, daemon=True).start()
 
