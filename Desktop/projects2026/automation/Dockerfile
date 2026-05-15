@@ -17,6 +17,9 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application source
 COPY Nexus_Control_Tower/ .
 
+# Install curl for health checks
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
 # Create the artifacts directory for EXE hosting
 RUN mkdir -p artifacts
 
@@ -24,8 +27,8 @@ RUN mkdir -p artifacts
 EXPOSE 80
 
 # Health check so ECS/Docker knows the container is alive
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:80/ || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:80/api/health || exit 1
 
 # Run the FastAPI server
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "80"]
