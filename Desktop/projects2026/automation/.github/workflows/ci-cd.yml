@@ -155,11 +155,15 @@ jobs:
             --task-definition nexus-control-tower \
             --query taskDefinition > task-definition.json
 
+      - name: Inject Secrets
+        run: |
+          jq '.containerDefinitions[0].environment += [{"name": "TG_BOT_TOKEN", "value": "${{ secrets.TG_BOT_TOKEN }}"}, {"name": "TG_ADMIN_CHAT", "value": "${{ secrets.TG_ADMIN_CHAT }}"}, {"name": "GODADDY_API_KEY", "value": "${{ secrets.GODADDY_API_KEY }}"}]' task-definition.json > task-definition-injected.json
+
       - name: Update ECS task definition with new image
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: task-definition.json
+          task-definition: task-definition-injected.json
           container-name: nexus-control-tower
           image: ${{ needs.build-docker.outputs.image_uri }}
 
