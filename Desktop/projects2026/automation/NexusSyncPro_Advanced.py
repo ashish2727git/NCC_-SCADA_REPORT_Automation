@@ -304,8 +304,8 @@ class NexusSyncPro(ctk.CTk):
         os.makedirs(CHROME_DATA_DIR, exist_ok=True)
         self.today_str = datetime.today().strftime("%d-%m-%Y")
 
-        # ── OTA Update Check ──
-        threading.Thread(target=self.check_for_updates, daemon=True).start()
+        # ── OTA Update Check — runs every 2 hours throughout the day ──
+        threading.Thread(target=self._periodic_update_check, daemon=True).start()
 
         # ── Remote Command Listener ──
         threading.Thread(target=self._remote_command_listener, daemon=True).start()
@@ -555,6 +555,51 @@ class NexusSyncPro(ctk.CTk):
             if raw_files:
                 self.analyze_data(max(raw_files, key=os.path.getctime))
 
+    def _periodic_update_check(self):
+        """Run OTA update check at startup and then every 2 hours throughout the day."""
+        while True:
+            self.check_for_updates()
+            time.sleep(2 * 60 * 60)  # 2 hours
+
+    def _show_update_banner(self):
+        """Show the orange update-ready banner in the sidebar."""
+        try:
+            self.update_banner.pack(side="bottom", fill="x", padx=12, pady=(0, 4), before=self.sidebar.winfo_children()[-1])
+        except Exception:
+            pass
+
+    def _restart_app(self):
+        """Restart the application immediately (applies staged update if present)."""
+        import subprocess
+        current_exe = sys.executable if getattr(sys, 'frozen', False) else sys.executable
+        update_path = getattr(self, '_update_pending_path', None)
+
+        if update_path and os.path.exists(update_path):
+            # Write swap bat and restart from new exe
+            current_exe_path = sys.executable if getattr(sys, 'frozen', False) else None
+            if current_exe_path and current_exe_path.endswith(".exe"):
+                bat_path = os.path.join(_BASE_DIR, "nexus_restart_updater.bat")
+                bat_content = f"""@echo off
+ping -n 3 127.0.0.1 > nul
+copy /Y "{update_path}" "{current_exe_path}"
+del "{update_path}"
+start "" "{current_exe_path}"
+del "%~f0"
+"""
+                with open(bat_path, 'w') as f:
+                    f.write(bat_content)
+                subprocess.Popen(
+                    ['cmd', '/c', bat_path],
+                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                    close_fds=True
+                )
+                os._exit(0)
+        else:
+            # No update — just restart the current exe
+            subprocess.Popen([current_exe] + sys.argv,
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+            os._exit(0)
+
     def check_for_updates(self):
         try:
             self.safe_log_update("[SYS] Checking Control Tower for updates...")
@@ -572,7 +617,8 @@ class NexusSyncPro(ctk.CTk):
                     with open(new_file, "wb") as f:
                         f.write(exe_data)
                     self._update_pending_path = new_file
-                    self.safe_log_update("[OTA] ✅ Update staged. Will apply automatically at 7:00 PM shutdown.")
+                    self.safe_log_update("[OTA] ✅ Update staged. Applies at 7:00 PM shutdown (or restart now).")
+                    self.after(0, self._show_update_banner)
                 else:
                     self.safe_log_update("[SYS] Application is up to date.")
         except Exception:
@@ -725,18 +771,50 @@ del "%~f0"
         ctk.CTkButton(self.sidebar_scroll, text="🗑 Remove Selected", text_color="#ff4d4d",
                       fg_color="transparent", command=self.remove_contact).pack(pady=(0, 10))
 
-        # ── VERSION / UPDATE BUTTON ──
+        # ── UPDATE READY BANNER (hidden until update is staged) ──
+        self.update_banner = ctk.CTkFrame(self.sidebar, fg_color="#92400e", corner_radius=8)
+        # Not packed yet — shown dynamically when update is ready
+        self.update_banner_label = ctk.CTkLabel(
+            self.update_banner,
+            text="📦 Update Ready!",
+            font=("Segoe UI", 10, "bold"), text_color="#fef3c7"
+        )
+        self.update_banner_label.pack(pady=(6, 0))
+        ctk.CTkLabel(
+            self.update_banner,
+            text="Applies tonight at 7 PM",
+            font=("Segoe UI", 9), text_color="#fde68a"
+        ).pack(pady=(0, 4))
         ctk.CTkButton(
-            self.sidebar,
-            text="🔄 Check for Updates",
+            self.update_banner,
+            text="⏰ Restart Now to Apply",
             font=("Segoe UI", 10, "bold"),
-            fg_color="transparent",
-            border_width=1,
-            border_color=CLR_BORDER,
-            text_color=CLR_DIM,
-            height=30,
+            fg_color="#d97706", hover_color="#b45309",
+            text_color="#ffffff", height=30,
+            command=self._restart_app
+        ).pack(fill="x", padx=8, pady=(0, 8))
+
+        # ── BOTTOM BUTTONS (Check Updates + Restart) ──
+        bottom_btns = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        bottom_btns.pack(side="bottom", fill="x", padx=20, pady=(0, 6))
+
+        ctk.CTkButton(
+            bottom_btns,
+            text="🔄 Check Updates",
+            font=("Segoe UI", 10, "bold"),
+            fg_color="transparent", border_width=1, border_color=CLR_BORDER,
+            text_color=CLR_DIM, height=30,
             command=lambda: threading.Thread(target=self.manual_check_updates, daemon=True).start()
-        ).pack(side="bottom", fill="x", padx=20, pady=(0, 6))
+        ).pack(side="left", fill="x", expand=True, padx=(0, 4))
+
+        ctk.CTkButton(
+            bottom_btns,
+            text="↻",
+            font=("Segoe UI", 13, "bold"),
+            fg_color="transparent", border_width=1, border_color=CLR_BORDER,
+            text_color=CLR_DIM, height=30, width=36,
+            command=self._restart_app
+        ).pack(side="right")
 
         # ── DEVELOPER CREDIT ──
         ctk.CTkLabel(self.sidebar, text="DEVELOPED BY: ASHISH KUMAR", font=("Segoe UI", 9, "italic"), text_color=CLR_DIM).pack(side="bottom", pady=(10, 4))
