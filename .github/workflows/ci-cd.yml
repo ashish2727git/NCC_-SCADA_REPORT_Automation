@@ -157,9 +157,9 @@ jobs:
             --task-definition nexus-control-tower:25 \
             --query taskDefinition > task-definition.json
 
-      - name: Inject Telegram Secrets
+      - name: Inject Secrets
         run: |
-          jq '.containerDefinitions[0].environment += [{"name": "TG_BOT_TOKEN", "value": "${{ secrets.TG_BOT_TOKEN }}"}, {"name": "TG_ADMIN_CHAT", "value": "${{ secrets.TG_ADMIN_CHAT }}"}]' task-definition.json > task-definition-injected.json
+          jq '.containerDefinitions[0].environment += [{"name": "TG_BOT_TOKEN", "value": "${{ secrets.TG_BOT_TOKEN }}"}, {"name": "TG_ADMIN_CHAT", "value": "${{ secrets.TG_ADMIN_CHAT }}"}, {"name": "GODADDY_API_KEY", "value": "${{ secrets.GODADDY_API_KEY }}"}]' task-definition.json > task-definition-injected.json
 
       - name: Update ECS task definition with new image
         id: task-def
