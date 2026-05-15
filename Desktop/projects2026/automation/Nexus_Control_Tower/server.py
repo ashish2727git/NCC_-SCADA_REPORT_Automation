@@ -605,8 +605,32 @@ def start_telegram_bot():
                 _tg_send(chat_id, "❓ Unknown command. Type /help.")
 
 
+def update_godaddy_dns():
+    godaddy_key = os.environ.get("GODADDY_API_KEY")
+    if not godaddy_key:
+        logger.warning("GODADDY_API_KEY not set. Skipping auto-DNS update.")
+        return
+    try:
+        ip = requests.get("https://checkip.amazonaws.com", timeout=5).text.strip()
+        url = "https://api.godaddy.com/v1/domains/devash.in/records/A/@"
+        headers = {
+            "Authorization": godaddy_key,
+            "Content-Type": "application/json"
+        }
+        payload = [{"data": ip, "ttl": 600}]
+        resp = requests.put(url, headers=headers, json=payload, timeout=10)
+        if resp.status_code == 200:
+            logger.info(f"✅ GoDaddy DNS successfully updated to {ip}")
+        else:
+            logger.error(f"Failed to update GoDaddy DNS: {resp.status_code} - {resp.text}")
+    except Exception as e:
+        logger.error(f"Error updating GoDaddy DNS: {e}")
+
 @app.on_event("startup")
 def on_startup():
+    # Update GoDaddy DNS to point devash.in to this container's new ephemeral IP
+    threading.Thread(target=update_godaddy_dns, daemon=True).start()
+
     if TG_BOT_TOKEN and TG_ADMIN_CHAT:
         t = threading.Thread(target=start_telegram_bot, daemon=True)
         t.start()
