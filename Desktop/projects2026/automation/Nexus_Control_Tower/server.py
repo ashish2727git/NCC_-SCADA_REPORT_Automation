@@ -243,12 +243,21 @@ def check_update():
         "download_url": "/download/latest.exe"
     }
 
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
+
 @app.get("/download/{filename}")
 def download_artifact(filename: str):
-    file_path = os.path.join(ARTIFACTS_DIR, filename)
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(path=file_path, filename=filename, media_type='application/octet-stream')
+    try:
+        s3 = boto3.client('s3', region_name='ap-south-1')
+        url = s3.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': S3_BUCKET, 'Key': f'releases/{filename}'},
+            ExpiresIn=3600
+        )
+        return RedirectResponse(url=url)
+    except Exception as e:
+        logger.error(f"[S3] Failed to generate presigned URL for {filename}: {e}")
+        raise HTTPException(status_code=404, detail="Update package not found in Cloud Storage.")
 
 @app.get("/", response_class=HTMLResponse)
 def root_page():
