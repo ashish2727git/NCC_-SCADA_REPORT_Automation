@@ -1,0 +1,29 @@
+[
+  {
+    "name": "nexus-control-tower",
+    "image": "802346121670.dkr.ecr.ap-south-1.amazonaws.com/nexus-control-tower:latest",
+    "essential": true,
+    "portMappings": [
+      { "containerPort": 80, "hostPort": 80, "protocol": "tcp" }
+    ],
+    "healthCheck": {
+      "command": ["CMD-SHELL", "curl -f http://localhost:80/api/health || exit 1"],
+      "interval": 30,
+      "timeout": 10,
+      "retries": 3,
+      "startPeriod": 30
+    },
+    "environment": [
+      { "name": "PYTHONUNBUFFERED", "value": "1" },
+      { "name": "ADMIN_SECRET",     "value": "nexus-admin-2026" }
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group":         "/ecs/nexus-control-tower",
+        "awslogs-region":        "ap-south-1",
+        "awslogs-stream-prefix": "ecs"
+      }
+    }
+  }
+]
