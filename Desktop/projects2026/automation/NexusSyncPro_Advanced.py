@@ -461,16 +461,16 @@ class NexusSyncPro(ctk.CTk):
                 data = resp.json()
                 latest_ver = data.get("latest_version", "0.0")
                 current_ver = "14.0"
-                
+
                 if float(latest_ver) > float(current_ver):
-                    self.safe_log_update(f"[OTA] Update available: v{latest_ver}. Automatically downloading...")
+                    self.safe_log_update(f"[OTA] Update available: v{latest_ver}. Downloading silently...")
                     dl_url = f"http://devash.in{data.get('download_url')}"
-                    exe_data = requests.get(dl_url, timeout=30).content
+                    exe_data = requests.get(dl_url, timeout=60).content
                     new_file = os.path.join(_BASE_DIR, "NexusSyncPro_Update.exe")
                     with open(new_file, "wb") as f:
                         f.write(exe_data)
-                    self.safe_log_update("[OTA] Update downloaded. Restart app to apply.")
-                    # Normally we'd use a .bat file to hot-swap here, but for simplicity we prompt restart
+                    self._update_pending_path = new_file
+                    self.safe_log_update("[OTA] ✅ Update staged. Will apply automatically at 7:00 PM shutdown.")
                 else:
                     self.safe_log_update("[SYS] Application is up to date.")
         except Exception:
@@ -527,10 +527,41 @@ class NexusSyncPro(ctk.CTk):
             time.sleep(15)
 
     def auto_close_app(self):
-        """End of day clean shutdown."""
+        """End of day clean shutdown. Applies any pending OTA update before exiting."""
         self.safe_log_update("\n[SYS] 7:00 PM REACHED. System performing scheduled shutdown...")
         self.update()
-        time.sleep(3)
+
+        # ── OTA AUTO-SWAP: If an update was downloaded today, apply it now ──
+        update_path = getattr(self, '_update_pending_path', None)
+        if update_path and os.path.exists(update_path):
+            try:
+                current_exe = sys.executable if getattr(sys, 'frozen', False) else None
+                if current_exe and current_exe.endswith(".exe"):
+                    self.safe_log_update("[OTA] Staging overnight update swap...")
+                    # Write a bat that: waits 3s, replaces exe, updates Task Scheduler, launches new version
+                    bat_path = os.path.join(_BASE_DIR, "nexus_updater.bat")
+                    bat_content = f"""@echo off
+:: Nexus Auto-Updater - Runs after app closes at 7 PM
+ping -n 4 127.0.0.1 > nul
+copy /Y "{update_path}" "{current_exe}"
+del "{update_path}"
+schtasks /create /tn "NexusSyncPro_DailyOpen" /tr "\"{current_exe}\"" /sc daily /st 08:00 /f > nul
+del "%~f0"
+"""
+                    with open(bat_path, 'w') as f:
+                        f.write(bat_content)
+                    # Launch the bat detached so it runs after this process exits
+                    import subprocess
+                    subprocess.Popen(
+                        ['cmd', '/c', bat_path],
+                        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                        close_fds=True
+                    )
+                    self.safe_log_update("[OTA] ✅ Auto-updater launched. New version will be ready at 8:00 AM.")
+            except Exception as e:
+                self.safe_log_update(f"[OTA] ⚠️ Update swap failed: {e}")
+
+        time.sleep(2)
         os._exit(0)
 
     def setup_ui(self):
