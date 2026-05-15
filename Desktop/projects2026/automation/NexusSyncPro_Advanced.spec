@@ -19,7 +19,17 @@ a = Analysis(
     pathex=[],
     binaries=binaries,
     datas=datas,
-    hiddenimports=hiddenimports,
+    hiddenimports=hiddenimports + [
+        'pandas',
+        'pandas._libs.properties',
+        'pandas._libs.interval',
+        'pandas._libs.hashtable',
+        'pandas._libs.tslibs.timedeltas',
+        'pandas._libs.tslibs.nattype',
+        'pandas._libs.tslibs.np_datetime',
+        'pandas._libs.tslibs.offsets',
+        'pandas._libs.tslibs.parsing'
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

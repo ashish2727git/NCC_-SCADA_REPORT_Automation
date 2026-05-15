@@ -571,29 +571,35 @@ class NexusSyncPro(ctk.CTk):
     def _restart_app(self):
         """Restart the application immediately (applies staged update if present)."""
         import subprocess
+        import shutil
         current_exe = sys.executable if getattr(sys, 'frozen', False) else sys.executable
         update_path = getattr(self, '_update_pending_path', None)
 
         if update_path and os.path.exists(update_path):
-            # Write swap bat and restart from new exe
             current_exe_path = sys.executable if getattr(sys, 'frozen', False) else None
             if current_exe_path and current_exe_path.endswith(".exe"):
-                bat_path = os.path.join(_BASE_DIR, "nexus_restart_updater.bat")
-                bat_content = f"""@echo off
-ping -n 3 127.0.0.1 > nul
-copy /Y "{update_path}" "{current_exe_path}"
-del "{update_path}"
-start "" "{current_exe_path}"
-del "%~f0"
-"""
-                with open(bat_path, 'w') as f:
-                    f.write(bat_content)
-                subprocess.Popen(
-                    ['cmd', '/c', bat_path],
-                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-                    close_fds=True
-                )
-                os._exit(0)
+                old_exe_path = current_exe_path + ".old"
+                if os.path.exists(old_exe_path):
+                    try:
+                        os.remove(old_exe_path)
+                    except:
+                        pass
+                # Rename the running executable so we can free up its filename
+                try:
+                    os.rename(current_exe_path, old_exe_path)
+                    shutil.copy2(update_path, current_exe_path)
+                    # Launch the new EXE and kill this old process
+                    subprocess.Popen([current_exe_path] + sys.argv,
+                                     creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                                     close_fds=True)
+                    os._exit(0)
+                except Exception as e:
+                    self.safe_log_update(f"[OTA] ⚠️ Restart fail (Privilege Error): {e}")
+            
+            # Fallback if uncompiled
+            subprocess.Popen([current_exe] + sys.argv,
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+            os._exit(0)
         else:
             # No update — just restart the current exe
             subprocess.Popen([current_exe] + sys.argv,
