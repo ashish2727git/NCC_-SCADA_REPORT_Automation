@@ -134,6 +134,9 @@
     <button class="nav-item" onclick="showSection('revoke',this)">
       <span class="icon">🚫</span> Revoke Key
     </button>
+    <button class="nav-item" onclick="showSection('remote',this);loadClients()">
+      <span class="icon">📡</span> Remote Control
+    </button>
     <button class="nav-item" onclick="showSection('logs',this)">
       <span class="icon">📜</span> Server Logs
     </button>
@@ -241,6 +244,28 @@
           <input type="text" id="revoke-key" placeholder="NEXUS-XXXX-XXXX-XXXX">
         </div>
         <button class="btn btn-danger" onclick="revokeKey()">🚫 Revoke License</button>
+      </div>
+    </div>
+
+    <!-- REMOTE CONTROL -->
+    <div id="sec-remote" class="section">
+      <div class="page-header">
+        <h2>Remote Control</h2>
+        <p>Trigger actions on client machines remotely</p>
+      </div>
+      <div class="card">
+        <div class="form-group" style="max-width:480px;margin-bottom:16px">
+          <label>Select Client Machine</label>
+          <select id="client-select" style="padding:10px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:.95rem;width:100%;outline:none">
+            <option>Click Refresh to load clients...</option>
+          </select>
+        </div>
+        <button class="btn" style="background:var(--subtle);color:var(--text);border:1px solid var(--border);margin-bottom:24px" onclick="loadClients()">🔄 Refresh Clients</button>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="issueCmd('PULL_DATA')" style="background:#10b981">📥 Trigger Pull Data</button>
+          <button class="btn btn-primary" onclick="issueCmd('BROADCAST')" style="background:#8b5cf6">📤 Trigger Broadcast</button>
+        </div>
+        <div id="cmd-status" style="margin-top:16px;font-size:.9rem;color:var(--muted)"></div>
       </div>
     </div>
 
@@ -414,7 +439,43 @@ async function doRevoke(key){
   } catch(e){ toast('Cannot reach server','error'); }
 }
 
-// ── Dashboard ──────────────────────────────────────────────
+// ── Remote Control ─────────────────────────────────────────
+async function loadClients(){
+  const sel = document.getElementById('client-select');
+  sel.innerHTML = '<option>Loading...</option>';
+  try{
+    const r = await fetch('/api/admin/list_licenses');
+    const data = await r.json();
+    const bound = data.filter(l=>l.is_active && l.hwid);
+    if(!bound.length){ sel.innerHTML='<option>No bound clients found</option>'; return; }
+    sel.innerHTML = bound.map(l=>`<option value="${l.hwid}">${l.client_name} (${l.hwid.substring(0,12)}...)</option>`).join('');
+  } catch(e){ sel.innerHTML='<option>Cannot reach server</option>'; }
+}
+
+async function issueCmd(cmd){
+  const sel = document.getElementById('client-select');
+  const hwid = sel.value;
+  const name = sel.options[sel.selectedIndex]?.text || hwid;
+  if(!hwid || hwid.length < 5){ toast('Select a valid client first','error'); return; }
+  if(!confirm(`Send "${cmd}" to ${name}?`)) return;
+  const status = document.getElementById('cmd-status');
+  status.textContent = 'Queuing command...';
+  try{
+    const r = await fetch('/api/admin/issue_command',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({hwid, command: cmd, admin_secret: ADMIN_PWD})
+    });
+    if(r.ok){
+      status.innerHTML = `<span style="color:var(--success)">✅ "${cmd}" queued for ${name}. Will execute within 15 seconds.</span>`;
+      toast(`Command sent to ${name} ✅`);
+    } else {
+      const e = await r.json();
+      status.innerHTML = `<span style="color:var(--danger)">❌ ${e.detail}</span>`;
+      toast(e.detail,'error');
+    }
+  } catch(e){ status.innerHTML='<span style="color:var(--danger)">❌ Cannot reach server</span>'; toast('Server offline','error'); }
+}
+
 async function loadDashboard(){
   // Server status
   try{
