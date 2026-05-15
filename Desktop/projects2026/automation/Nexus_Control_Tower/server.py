@@ -611,14 +611,14 @@ def update_godaddy_dns():
         logger.warning("GODADDY_API_KEY not set. Skipping auto-DNS update.")
         return
     try:
-        ip = requests.get("https://checkip.amazonaws.com", timeout=5).text.strip()
+        ip = http_client.get("https://checkip.amazonaws.com", timeout=5).text.strip()
         url = "https://api.godaddy.com/v1/domains/devash.in/records/A/@"
         headers = {
             "Authorization": godaddy_key,
             "Content-Type": "application/json"
         }
         payload = [{"data": ip, "ttl": 600}]
-        resp = requests.put(url, headers=headers, json=payload, timeout=10)
+        resp = http_client.put(url, headers=headers, json=payload, timeout=10)
         if resp.status_code == 200:
             logger.info(f"✅ GoDaddy DNS successfully updated to {ip}")
         else:
