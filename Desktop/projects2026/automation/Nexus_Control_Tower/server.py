@@ -306,6 +306,14 @@ def download_latest_route():
         logger.error(f"[S3] Failed to generate presigned URL for latest.exe: {e}")
         return HTMLResponse("<body style='background:#0f172a; color:white; text-align:center; padding-top:50px; font-family:sans-serif;'><h1>Server Error</h1><p>The update package is currently being generated in Cloud Storage. Please try again.</p></body>", status_code=404)
 
+@app.get("/portfolio", response_class=HTMLResponse)
+def portfolio_page():
+    portfolio_path = os.path.join(os.path.dirname(__file__), "portfolio.html")
+    if not os.path.exists(portfolio_path):
+        raise HTTPException(status_code=404, detail="Portfolio page not found")
+    with open(portfolio_path, "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
 @app.get("/admin", response_class=HTMLResponse)
 def admin_dashboard():
     with open(ADMIN_HTML, "r", encoding="utf-8") as f:
