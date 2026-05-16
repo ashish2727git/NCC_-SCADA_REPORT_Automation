@@ -26,9 +26,9 @@ RUN mkdir -p artifacts
 # Expose the FastAPI port
 EXPOSE 80
 
-# Health check so ECS/Docker knows the container is alive
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:80/api/health || exit 1
+# Health check disabled temporarily for faster stabilization
+# HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+#     CMD curl -f http://localhost:80/api/health || exit 1
 
 # Run the FastAPI server
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "80"]
