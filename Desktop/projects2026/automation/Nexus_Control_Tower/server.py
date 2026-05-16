@@ -26,13 +26,9 @@ ADMIN_HTML = os.path.join(os.path.dirname(__file__), "admin_dashboard.html")
 
 app = FastAPI(title="Nexus Control Tower")
 
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    client_ip = request.client.host if request.client else "Unknown"
-    logger.info(f"Incoming: {request.method} {request.url.path} from {client_ip}")
-    response = await call_next(request)
-    logger.info(f"Response: {response.status_code}")
-    return response
+# ─── Initialization ───────────────────────────────────────────────────────
+sync_db_from_s3()
+init_db()
 
 DB_FILE = "nexus_db.sqlite"
 ARTIFACTS_DIR = "artifacts"
@@ -806,19 +802,13 @@ def update_cloudflare_dns():
     except Exception as e:
         logger.error(f"Error updating Cloudflare DNS: {e}")
 
-@app.on_event("startup")
-def on_startup():
-    # Restore DB from S3 before anything else
-    sync_db_from_s3()
-    init_db()
+# Update Cloudflare DNS to point devash.in to this container's new ephemeral IP in background
+threading.Thread(target=update_cloudflare_dns, daemon=True).start()
 
-    # Update Cloudflare DNS to point devash.in to this container's new ephemeral IP
-    threading.Thread(target=update_cloudflare_dns, daemon=True).start()
-
-    if TG_BOT_TOKEN and TG_ADMIN_CHAT:
-        t = threading.Thread(target=start_telegram_bot, daemon=True)
-        t.start()
-        logger.info("[TG] Bot thread launched.")
+if TG_BOT_TOKEN and TG_ADMIN_CHAT:
+    t = threading.Thread(target=start_telegram_bot, daemon=True)
+    t.start()
+    logger.info("[TG] Bot thread launched.")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
