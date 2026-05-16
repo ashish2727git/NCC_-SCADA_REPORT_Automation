@@ -11,17 +11,16 @@ import uvicorn
 import boto3
 from botocore.exceptions import ClientError
 
-# Configure logging
-LOG_FILE = "nexus_server.log"
+# Configure logging to stdout for Docker compatibility
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
     handlers=[
-        logging.FileHandler(LOG_FILE),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger("NexusControlTower")
+LOG_FILE = "nexus_server.log"
 
 ADMIN_HTML = os.path.join(os.path.dirname(__file__), "admin_dashboard.html")
 
