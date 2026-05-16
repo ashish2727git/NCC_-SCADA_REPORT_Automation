@@ -27,7 +27,8 @@ ADMIN_HTML = os.path.join(os.path.dirname(__file__), "admin_dashboard.html")
 app = FastAPI(title="Nexus Control Tower")
 
 # ─── Initialization ───────────────────────────────────────────────────────
-sync_db_from_s3()
+# Run database sync in background to prevent startup hanging
+threading.Thread(target=sync_db_from_s3, daemon=True).start()
 init_db()
 
 DB_FILE = "nexus_db.sqlite"
