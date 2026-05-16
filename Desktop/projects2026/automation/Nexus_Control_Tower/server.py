@@ -268,24 +268,145 @@ def root_page():
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Nexus Sync | Enterprise Release</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
         <style>
-            body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; height: 100vh; }
-            .container { text-align: center; background-color: #1e293b; padding: 50px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; max-width: 500px; width: 90%; }
-            .logo { font-size: 3em; margin-bottom: 10px; }
-            h1 { color: #38bdf8; margin-bottom: 10px; font-size: 2.5em; letter-spacing: 1px;}
-            p { color: #94a3b8; font-size: 1.1em; margin-bottom: 35px; line-height: 1.6; }
-            .btn { background-color: #0ea5e9; color: white; text-decoration: none; padding: 15px 35px; border-radius: 8px; font-size: 1.2em; font-weight: bold; transition: all 0.3s ease; display: inline-block; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4); }
-            .btn:hover { background-color: #0284c7; transform: translateY(-2px); box-shadow: 0 6px 20px rgba(14, 165, 233, 0.6); }
-            .footer { margin-top: 40px; font-size: 0.85em; color: #64748b; letter-spacing: 0.5px;}
+            :root {
+                --primary: #0ea5e9;
+                --primary-glow: rgba(14, 165, 233, 0.5);
+                --bg-color: #030712;
+            }
+            body { 
+                margin: 0; padding: 0; 
+                font-family: 'Inter', sans-serif; 
+                background-color: var(--bg-color); 
+                color: #f8fafc; 
+                display: flex; justify-content: center; align-items: center; 
+                min-height: 100vh;
+                overflow: hidden;
+            }
+            
+            /* Animated Background Gradient */
+            .bg-glow {
+                position: absolute;
+                width: 600px; height: 600px;
+                background: radial-gradient(circle, var(--primary-glow) 0%, transparent 60%);
+                top: 50%; left: 50%;
+                transform: translate(-50%, -50%);
+                filter: blur(80px);
+                z-index: 0;
+                animation: pulse 8s infinite alternate ease-in-out;
+            }
+            
+            @keyframes pulse {
+                0% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
+                100% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.8; }
+            }
+
+            /* Glassmorphism Card */
+            .container { 
+                position: relative;
+                z-index: 10;
+                text-align: center; 
+                background: rgba(15, 23, 42, 0.4);
+                backdrop-filter: blur(20px);
+                -webkit-backdrop-filter: blur(20px);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                padding: 60px 50px; 
+                border-radius: 24px; 
+                box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1); 
+                max-width: 500px; width: 90%; 
+                animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+                opacity: 0;
+                transform: translateY(40px);
+            }
+            
+            @keyframes slideUp {
+                to { opacity: 1; transform: translateY(0); }
+            }
+
+            .logo { 
+                font-size: 3.5em; 
+                margin-bottom: 15px;
+                text-shadow: 0 0 20px var(--primary-glow);
+                animation: float 4s ease-in-out infinite;
+            }
+            
+            @keyframes float {
+                0%, 100% { transform: translateY(0); }
+                50% { transform: translateY(-10px); }
+            }
+
+            h1 { 
+                background: linear-gradient(to right, #38bdf8, #818cf8);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                margin: 0 0 15px 0; 
+                font-size: 3em; 
+                font-weight: 800;
+                letter-spacing: -1px;
+            }
+            
+            p { 
+                color: #94a3b8; 
+                font-size: 1.15em; 
+                margin-bottom: 40px; 
+                line-height: 1.6; 
+                font-weight: 300;
+            }
+
+            /* Premium Button */
+            .btn { 
+                background: linear-gradient(135deg, #0ea5e9, #2563eb);
+                color: white; 
+                text-decoration: none; 
+                padding: 18px 40px; 
+                border-radius: 50px; 
+                font-size: 1.1em; 
+                font-weight: 600; 
+                letter-spacing: 0.5px;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+                display: inline-flex; 
+                align-items: center;
+                gap: 10px;
+                box-shadow: 0 10px 20px -5px rgba(14, 165, 233, 0.5); 
+                border: 1px solid rgba(255,255,255,0.1);
+            }
+            
+            .btn:hover { 
+                transform: translateY(-3px) scale(1.02); 
+                box-shadow: 0 15px 25px -5px rgba(14, 165, 233, 0.6); 
+            }
+            
+            .btn svg {
+                width: 20px; height: 20px;
+                fill: currentColor;
+                transition: transform 0.3s ease;
+            }
+            
+            .btn:hover svg {
+                transform: translateY(2px);
+            }
+
+            .footer { 
+                margin-top: 45px; 
+                font-size: 0.85em; 
+                color: #475569; 
+                letter-spacing: 0.5px;
+                font-weight: 600;
+            }
         </style>
     </head>
     <body>
+        <div class="bg-glow"></div>
         <div class="container">
             <div class="logo">⚡</div>
             <h1>NEXUS SYNC</h1>
-            <p>Enterprise Suite for Data Automation.<br>Authorized personnel only.</p>
-            <a href="/download_latest" class="btn">⬇ Download Application</a>
-            <div class="footer">Developed by Ashish Kumar • Secured Server Node</div>
+            <p>The Enterprise Suite for SCADA Data Automation.<br>Authorized personnel only.</p>
+            <a href="/download_latest" class="btn">
+                <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                Download Application
+            </a>
+            <div class="footer">DEVELOPED BY ASHISH KUMAR • SECURED SERVER NODE</div>
         </div>
     </body>
     </html>
