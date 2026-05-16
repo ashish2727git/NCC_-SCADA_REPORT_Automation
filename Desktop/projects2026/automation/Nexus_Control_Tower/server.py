@@ -294,10 +294,17 @@ def root_page():
 
 @app.get("/download_latest")
 def download_latest_route():
-    file_path = os.path.join(ARTIFACTS_DIR, "latest.exe")
-    if not os.path.exists(file_path):
-        return HTMLResponse("<body style='background:#0f172a; color:white; text-align:center; padding-top:50px; font-family:sans-serif;'><h1>Server Error</h1><p>The build pipeline is still compiling the EXE. Please try again in 2 minutes.</p></body>", status_code=404)
-    return FileResponse(path=file_path, filename="NexusSyncPro_Enterprise.exe", media_type='application/octet-stream')
+    try:
+        s3 = boto3.client('s3', region_name='ap-south-1')
+        url = s3.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': S3_BUCKET, 'Key': 'releases/latest.exe'},
+            ExpiresIn=3600
+        )
+        return RedirectResponse(url=url)
+    except Exception as e:
+        logger.error(f"[S3] Failed to generate presigned URL for latest.exe: {e}")
+        return HTMLResponse("<body style='background:#0f172a; color:white; text-align:center; padding-top:50px; font-family:sans-serif;'><h1>Server Error</h1><p>The update package is currently being generated in Cloud Storage. Please try again.</p></body>", status_code=404)
 
 @app.get("/admin", response_class=HTMLResponse)
 def admin_dashboard():
