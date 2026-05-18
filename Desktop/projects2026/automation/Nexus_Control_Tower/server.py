@@ -26,16 +26,11 @@ ADMIN_HTML = os.path.join(os.path.dirname(__file__), "admin_dashboard.html")
 
 app = FastAPI(title="Nexus Control Tower")
 
-# ─── Initialization ───────────────────────────────────────────────────────
-# Run database sync in background to prevent startup hanging
-threading.Thread(target=sync_db_from_s3, daemon=True).start()
-init_db()
-
 DB_FILE = "nexus_db.sqlite"
 ARTIFACTS_DIR = "artifacts"
 S3_BUCKET = "nexus-sync-artifacts-802346121670"
-
 os.makedirs(ARTIFACTS_DIR, exist_ok=True)
+
 
 def sync_db_from_s3():
     try:
@@ -81,6 +76,9 @@ def init_db():
     conn.close()
 
 init_db()
+
+# Run database sync in background to prevent startup hanging
+threading.Thread(target=sync_db_from_s3, daemon=True).start()
 
 # ─── Admin Secret (simple protection) ─────────────────────────────────────
 ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "nexus-admin-2026")
