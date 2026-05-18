@@ -72,13 +72,25 @@ def init_db():
                     command TEXT,
                     is_executed INTEGER DEFAULT 0
                  )''')
+    
+    # SEED DEFAULT LICENSES IF EMPTY
+    c.execute("SELECT COUNT(*) FROM licenses")
+    if c.fetchone()[0] == 0:
+        logger.info("[DB] Seeding default active enterprise license keys...")
+        c.execute("INSERT OR IGNORE INTO licenses (key, hwid, is_active, client_name) VALUES (?, ?, ?, ?)",
+                  ("NEXUS-U1BO-WGO9-PF8U", "119007310864788", 1, "Ashish Kumar"))
+        
     conn.commit()
     conn.close()
 
+# Try downloading from S3 first (synchronously at boot)
+sync_db_from_s3()
+
+# Initialize tables and seed default keys
 init_db()
 
-# Run database sync in background to prevent startup hanging
-threading.Thread(target=sync_db_from_s3, daemon=True).start()
+# Back up the seeded/initialized database immediately to S3
+sync_db_to_s3()
 
 # ─── Admin Secret (simple protection) ─────────────────────────────────────
 ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "nexus-admin-2026")
