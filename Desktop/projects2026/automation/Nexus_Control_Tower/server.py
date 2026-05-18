@@ -434,6 +434,24 @@ def admin_dashboard():
     with open(ADMIN_HTML, "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
+@app.get("/{page_name}", response_class=HTMLResponse)
+def serve_dynamic_page(page_name: str):
+    # Avoid hijacking standard administrative or static routes
+    if page_name in ["admin", "portfolio", "download_latest", "favicon.ico", "api"]:
+        raise HTTPException(status_code=404)
+    
+    # Check if a matching HTML file exists in the repository root (same directory as server.py)
+    file_path = os.path.join(os.path.dirname(__file__), f"{page_name}.html")
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                return HTMLResponse(content=f.read())
+        except Exception as e:
+            logger.error(f"Error reading dynamic page {page_name}.html: {e}")
+            raise HTTPException(status_code=500, detail="Error reading page file")
+            
+    raise HTTPException(status_code=404, detail="Page not found")
+
 
 # ═══════════════════════════════════════════════════════════════
 # ⚡ TELEGRAM ADMIN BOT
