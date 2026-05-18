@@ -108,6 +108,10 @@ class CommandIssue(BaseModel):
     command: str
     admin_secret: str = ""
 
+class CommandIssueAll(BaseModel):
+    command: str
+    admin_secret: str = ""
+
 class CommandAck(BaseModel):
     command_id: int
 
@@ -178,6 +182,30 @@ def issue_remote_command(data: CommandIssue):
     conn.close()
     threading.Thread(target=sync_db_to_s3, daemon=True).start()
     return {"status": "success", "message": "Command queued for execution."}
+
+@app.post("/api/admin/issue_command_all")
+def issue_remote_command_all(data: CommandIssueAll):
+    if data.admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    
+    # Query all active, bound hwids
+    c.execute("SELECT DISTINCT hwid FROM licenses WHERE is_active=1 AND hwid IS NOT NULL AND hwid != ''")
+    rows = c.fetchall()
+    
+    if not rows:
+        conn.close()
+        raise HTTPException(status_code=400, detail="No active bound clients found to receive command.")
+        
+    for r in rows:
+        hwid = r[0]
+        c.execute("INSERT INTO remote_commands (hwid, command) VALUES (?, ?)", (hwid, data.command))
+        
+    conn.commit()
+    conn.close()
+    threading.Thread(target=sync_db_to_s3, daemon=True).start()
+    return {"status": "success", "message": f"Command '{data.command}' queued for {len(rows)} active clients."}
 
 @app.get("/api/poll_commands")
 def poll_commands(hwid: str):

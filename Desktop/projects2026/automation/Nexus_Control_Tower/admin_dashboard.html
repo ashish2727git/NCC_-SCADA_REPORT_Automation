@@ -167,6 +167,15 @@
           <div class="stat-value red" id="stat-revoked">—</div>
         </div>
       </div>
+      <div class="card" style="background: linear-gradient(135deg, #14213d, #0f1829); border-color: rgba(59, 130, 246, 0.4); box-shadow: 0 10px 30px rgba(59,130,246,0.1)">
+        <h3 style="margin-bottom:8px;font-size:1.1rem;display:flex;align-items:center;gap:8px">⚡ Live Portal Actions</h3>
+        <p style="color:var(--muted);font-size:.85rem;margin-bottom:18px">Trigger instant manual attendance scrapes or report broadcasting across all active node machines in one single click.</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="issueAllCmd('PULL_DATA')" style="background:#10b981">🔄 Pull Live JJM Data</button>
+          <button class="btn btn-primary" onclick="issueAllCmd('BROADCAST')" style="background:#8b5cf6">📤 Broadcast Reports</button>
+        </div>
+        <div id="dashboard-cmd-status" style="margin-top:12px;font-size:.85rem;color:var(--muted)"></div>
+      </div>
       <div class="card">
         <h3 style="margin-bottom:16px;font-size:1rem">Server Status</h3>
         <div id="server-status" style="color:var(--muted)">Checking...</div>
@@ -474,6 +483,30 @@ async function issueCmd(cmd){
       toast(e.detail,'error');
     }
   } catch(e){ status.innerHTML='<span style="color:var(--danger)">❌ Cannot reach server</span>'; toast('Server offline','error'); }
+}
+
+async function issueAllCmd(cmd){
+  if(!confirm(`Are you sure you want to trigger "${cmd}" for all active client machines?`)) return;
+  const status = document.getElementById('dashboard-cmd-status');
+  status.textContent = 'Queuing bulk command...';
+  try{
+    const r = await fetch('/api/admin/issue_command_all',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({command: cmd, admin_secret: ADMIN_PWD})
+    });
+    if(r.ok){
+      const res = await r.json();
+      status.innerHTML = `<span style="color:var(--success)">✅ ${res.message} Commands will execute within 15 seconds.</span>`;
+      toast(`Bulk command sent successfully ✅`);
+    } else {
+      const e = await r.json();
+      status.innerHTML = `<span style="color:var(--danger)">❌ ${e.detail}</span>`;
+      toast(e.detail,'error');
+    }
+  } catch(e){ 
+    status.innerHTML='<span style="color:var(--danger)">❌ Cannot reach server</span>'; 
+    toast('Server offline','error'); 
+  }
 }
 
 async function loadDashboard(){
