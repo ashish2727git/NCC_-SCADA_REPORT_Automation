@@ -6,6 +6,7 @@ import time
 import requests as http_client
 from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
 import boto3
@@ -25,6 +26,9 @@ LOG_FILE = "nexus_server.log"
 ADMIN_HTML = os.path.join(os.path.dirname(__file__), "admin_dashboard.html")
 
 app = FastAPI(title="Nexus Control Tower")
+
+# Mount portfolio3 static files
+app.mount("/portfolio3", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "portfolio3"), html=True), name="portfolio3")
 
 DB_FILE = "nexus_db.sqlite"
 ARTIFACTS_DIR = "artifacts"

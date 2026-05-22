@@ -1,0 +1,196 @@
+.global-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 500;
+  padding: 18px 40px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  background: rgba(var(--bg-rgb, 2, 6, 9), 0.75);
+  transition: all 0.4s;
+  pointer-events: auto;
+}
+
+.nav-logo {
+  font-family: 'Orbitron', monospace;
+  font-size: 15px;
+  font-weight: 900;
+  background: linear-gradient(135deg, var(--c), var(--p));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: 3px;
+}
+
+.nav-links {
+  display: flex;
+  gap: 32px;
+}
+
+.nav-links a {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: none;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  transition: color 0.3s;
+  position: relative;
+}
+
+.nav-links a::after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  left: 0;
+  width: 0;
+  height: 1px;
+  background: var(--c);
+  transition: width 0.3s;
+}
+
+.nav-links a:hover {
+  color: var(--c);
+}
+
+.nav-links a:hover::after {
+  width: 100%;
+}
+
+.nav-links a.active {
+  color: var(--c);
+}
+
+.nav-links a.active::after {
+  width: 100%;
+}
+
+/* Scroll progress bar */
+#progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  z-index: 600;
+  background: linear-gradient(90deg, var(--c), var(--p));
+  transition: width 0.1s;
+  box-shadow: 0 0 10px var(--c);
+}
+
+@media(max-width: 768px) {
+  .global-nav {
+    padding: 14px 20px;
+  }
+  .nav-links {
+    gap: 18px;
+  }
+}
+
+@media(max-width: 500px) {
+  .nav-links a:not(:first-child):not(:last-child) {
+    display: none;
+  }
+}
+
+/* ── THEME SELECTOR DROPDOWN ── */
+.theme-selector-container {
+  position: relative;
+  font-family: 'Share Tech Mono', monospace;
+}
+
+.theme-selector-trigger {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 7px 14px;
+  border-radius: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+}
+
+.theme-selector-trigger:hover {
+  border-color: var(--c);
+  background: var(--glow);
+  box-shadow: 0 0 10px var(--glow);
+}
+
+.theme-indicator-dots {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.theme-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 0 4px rgba(0,0,0,0.5);
+}
+
+.theme-dropdown-list {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 170px;
+  z-index: 1000;
+  box-shadow: 0 8px 32px var(--glow);
+  backdrop-filter: blur(20px);
+  animation: dropdownFadeIn 0.2s ease;
+}
+
+@keyframes dropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.theme-dropdown-item {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 7px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-family: 'Share Tech Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: all 0.2s ease;
+  text-align: left;
+  width: 100%;
+}
+
+.theme-dropdown-item:hover, .theme-dropdown-item.active {
+  background: var(--glow);
+  color: var(--c);
+}
+
+.theme-dropdown-item.active {
+  font-weight: bold;
+}
