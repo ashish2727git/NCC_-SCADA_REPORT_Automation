@@ -1,0 +1,10 @@
+.skills-snowfall-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1; /* Sits just behind our glass panels (z-index 10) and over WebGL layer (z-index 0) */
+  pointer-events: none; /* Let clicks pass through to interactive cards and buttons */
+  background: transparent;
+}
