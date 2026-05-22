@@ -478,10 +478,14 @@ def admin_dashboard():
     with open(ADMIN_HTML, "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
+@app.get("/portfolio3")
+def portfolio3_redirect():
+    return RedirectResponse(url="/portfolio3/")
+
 @app.get("/{page_name}", response_class=HTMLResponse)
 def serve_dynamic_page(page_name: str):
     # Avoid hijacking standard administrative or static routes
-    if page_name in ["admin", "portfolio", "download_latest", "favicon.ico", "api"]:
+    if page_name in ["admin", "portfolio", "download_latest", "favicon.ico", "api", "portfolio3"]:
         raise HTTPException(status_code=404)
     
     # Check if a matching HTML file exists in the repository root (same directory as server.py)
