@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { RefreshCw, Award, Server, Trophy, User } from 'lucide-react';
+import { RefreshCw, Award, Server, Trophy, User, Volume2, VolumeX } from 'lucide-react';
 import './CityBloxxGame.css';
 
 // Developer skills represented by icons
@@ -360,6 +360,18 @@ export default function CityBloxxGame() {
   const [levelComplete, setLevelComplete] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [nameSaved, setNameSaved] = useState(false);
+  const [isMuted, setIsMuted] = useState(() => {
+    try {
+      return localStorage.getItem('citybloxx_muted') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const isMutedRef = useRef(isMuted);
+
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
   const [leaderboard, setLeaderboard] = useState(() => {
     try { return JSON.parse(localStorage.getItem('citybloxx_leaderboard') || '[]'); }
     catch { return []; }
@@ -439,6 +451,7 @@ export default function CityBloxxGame() {
   }, [isPlaying, gameOver, levelComplete, score, floors, combo, lives]);
 
   const playSound = (type) => {
+    if (isMutedRef.current) return;
     try {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       if (!AudioContext) return;
@@ -1039,9 +1052,22 @@ export default function CityBloxxGame() {
             <span className="hud-label">LEVEL</span>
             <span className="hud-value text-yellow">{levelNum}</span>
           </div>
+          <button 
+            className={`hud-icon-btn mute ${isMuted ? 'muted' : ''}`} 
+            onClick={() => {
+              const nextMuted = !isMuted;
+              setIsMuted(nextMuted);
+              try {
+                localStorage.setItem('citybloxx_muted', String(nextMuted));
+              } catch {}
+            }} 
+            title={isMuted ? "Unmute sound" : "Mute sound"}
+          >
+            {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+          </button>
           {isPlaying && !gameOver && (
             <button className="hud-icon-btn reset" onClick={startGame} title="Restart Engine">
-              <RefreshCw size={12} />
+              <RefreshCw size={14} />
             </button>
           )}
         </div>

@@ -427,3 +427,91 @@
   to { transform: translateX(4px); }
 }
 
+/* HUD BUTTONS (MUTE & RELOAD) */
+.hud-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(6, 12, 24, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.65);
+  cursor: pointer;
+  outline: none;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-left: 8px;
+  padding: 0;
+  backdrop-filter: blur(8px);
+  position: relative;
+}
+
+.hud-icon-btn::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border-radius: 50%;
+  background: radial-gradient(circle, transparent 60%, rgba(255, 255, 255, 0.1) 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.hud-icon-btn:hover {
+  color: #00f0ff;
+  border-color: #00f0ff;
+  background: rgba(0, 240, 255, 0.08);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.4), inset 0 0 4px rgba(0, 240, 255, 0.2);
+  transform: scale(1.1) translateY(-1px);
+}
+
+.hud-icon-btn:hover::after {
+  opacity: 1;
+}
+
+.hud-icon-btn:active {
+  transform: scale(0.9) translateY(0);
+}
+
+/* Animations for buttons */
+.hud-icon-btn.reset:hover svg {
+  animation: spin 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.hud-icon-btn.mute:hover svg {
+  animation: pulse-audio 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes pulse-audio {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.15); }
+}
+
+/* Custom styled mute button when active (muted) */
+.hud-icon-btn.mute.muted {
+  background: rgba(255, 0, 128, 0.12);
+  border-color: #ff0080;
+  color: #ff0080;
+  box-shadow: 0 0 10px rgba(255, 0, 128, 0.3);
+}
+
+.hud-icon-btn.mute.muted:hover {
+  background: rgba(255, 0, 128, 0.2);
+  box-shadow: 0 0 15px rgba(255, 0, 128, 0.5), inset 0 0 4px rgba(255, 0, 128, 0.3);
+}
+
+.hud-icon-btn.mute:not(.muted):hover {
+  background: rgba(0, 240, 255, 0.08);
+  border-color: #00f0ff;
+  color: #00f0ff;
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.4);
+}
