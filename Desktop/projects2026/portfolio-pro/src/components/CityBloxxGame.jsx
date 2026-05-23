@@ -1083,7 +1083,6 @@ export default function CityBloxxGame() {
                 <div className="leaderboard-block">
                   <div className="lb-header">
                     <p className="lb-title">🏆 TOP SCORES</p>
-                    <button className="lb-clear-btn" onClick={clearLeaderboard}>CLEAR DB</button>
                   </div>
                   {leaderboard.length === 0 ? (
                     <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.7rem', marginTop: '6px' }}>No records yet.</p>
