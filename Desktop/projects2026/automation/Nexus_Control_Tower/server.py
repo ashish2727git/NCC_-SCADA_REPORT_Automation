@@ -41,7 +41,7 @@ def sync_db_from_s3():
         s3 = boto3.client('s3', region_name='ap-south-1')
         s3.download_file(S3_BUCKET, DB_FILE, DB_FILE)
         logger.info("[DB] Successfully restored database from S3.")
-    except ClientError as e:
+    except Exception as e:
         logger.warning(f"[DB] No existing database on S3 or download failed: {e}")
 
 def sync_db_to_s3():
