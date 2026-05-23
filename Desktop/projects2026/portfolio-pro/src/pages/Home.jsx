@@ -112,28 +112,28 @@ const CERTIFICATIONS = [
     icon: '☁️',
     name: 'AWS Web Services Training',
     by: 'Techwing',
-    fileUrl: '/certificates/aws_training.png'
+    fileUrl: import.meta.env.BASE_URL + 'certificates/aws_training.png'
   },
   {
     id: 'chatgpt_intern',
     icon: '🤖',
     name: 'ChatGPT & Generative AI Internship',
     by: 'Blackbucks & IIDT',
-    fileUrl: '/certificates/chatgpt_intern.png'
+    fileUrl: import.meta.env.BASE_URL + 'certificates/chatgpt_intern.png'
   },
   {
     id: 'cybersecurity_intern',
     icon: '🔐',
     name: 'AI & Cybersecurity Internship',
     by: 'AIMER Society',
-    fileUrl: '/certificates/cybersecurity_intern.png'
+    fileUrl: import.meta.env.BASE_URL + 'certificates/cybersecurity_intern.png'
   },
   {
     id: 'solutions_architecture',
     icon: '🏗️',
     name: 'Solutions Architecture Job Simulation',
     by: 'Forage',
-    fileUrl: '/certificates/solutions_architecture.png'
+    fileUrl: import.meta.env.BASE_URL + 'certificates/solutions_architecture.png'
   }
 ];
 
@@ -586,7 +586,7 @@ export default function Home() {
             
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: '24px' }}>
               <a 
-                href="/resume.pdf" 
+                href={`${import.meta.env.BASE_URL}resume.pdf`} 
                 download="Akula_Ashish_Kumar_Resume.pdf"
                 className="hire-btn"
                 style={{ textDecoration: 'none' }}
