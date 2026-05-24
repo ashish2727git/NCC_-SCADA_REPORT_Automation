@@ -5,3 +5,4 @@ requests
 pydantic
 boto3
 aiofiles
+python-multipart
