@@ -325,7 +325,7 @@ def download_report(date: str = None, admin_secret: str = None):
 def check_update():
     # Returns the actual latest version so clients only update when necessary
     return {
-        "latest_version": "14.1",
+        "latest_version": "14.2",
         "download_url": "/download/latest.exe"
     }
 
