@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 import requests as http_client
-from fastapi import FastAPI, HTTPException, Request, Header
+from fastapi import FastAPI, HTTPException, Request, Header, UploadFile, File
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -272,6 +272,54 @@ def verify_license(data: LicenseCheck):
         raise HTTPException(status_code=403, detail="License is bound to another device")
 
     return {"status": "success", "message": "License verified."}
+
+REPORTS_DIR = "reports"
+os.makedirs(REPORTS_DIR, exist_ok=True)
+
+@app.post("/api/upload_report")
+async def upload_report(file: UploadFile = File(...)):
+    filename = file.filename
+    if not filename.endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Only Excel (.xlsx) reports are allowed.")
+    
+    file_path = os.path.join(REPORTS_DIR, filename)
+    with open(file_path, "wb") as buffer:
+        content = await file.read()
+        buffer.write(content)
+    
+    logger.info(f"[REPORT] Received report file: {filename}")
+    
+    try:
+        s3 = boto3.client('s3', region_name='ap-south-1')
+        s3.upload_file(file_path, S3_BUCKET, f"reports/{filename}")
+        logger.info(f"[REPORT] Successfully backed up report {filename} to S3.")
+    except Exception as e:
+        logger.error(f"[REPORT] Failed to backup report to S3: {e}")
+        
+    return {"status": "success", "filename": filename}
+
+@app.get("/api/admin/download_report")
+def download_report(date: str = None, admin_secret: str = None):
+    if admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    if not date:
+        date = time.strftime("%d-%m-%Y")
+        
+    filename = f"Final_Daily_Report_{date}.xlsx"
+    file_path = os.path.join(REPORTS_DIR, filename)
+    
+    if os.path.exists(file_path):
+        return FileResponse(file_path, filename=filename, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        
+    try:
+        s3 = boto3.client('s3', region_name='ap-south-1')
+        s3.download_file(S3_BUCKET, f"reports/{filename}", file_path)
+        logger.info(f"[REPORT] Downloaded report {filename} from S3 for admin.")
+        return FileResponse(file_path, filename=filename, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    except Exception as e:
+        logger.error(f"[REPORT] Failed to download report {filename} from S3: {e}")
+        raise HTTPException(status_code=404, detail="Report file not found for the specified date.")
 
 @app.get("/api/update_check")
 def check_update():
@@ -746,7 +794,7 @@ def start_telegram_bot():
                     if time.time() > entry["expires_at"]:
                         _tg_send(chat_id, "⏰ *OTP Expired.* Please re-issue the command.")
                     else:
-                        emoji = "📥" if entry["action"] == "PULL_DATA" else "📤"
+                        emoji = "💧" if entry["action"] == "PULL_JJM" else ("📥" if entry["action"] == "PULL_DATA" else "📤")
                         if entry.get("all_hwids"):
                             for h in entry["all_hwids"]:
                                 _tg_queue_command(h, entry["action"])
@@ -768,9 +816,11 @@ def start_telegram_bot():
                 _tg_send(chat_id,
                     "*⚡ Nexus Admin Bot*\n\n"
                     "`/clients` — List connected machines\n"
-                    "`/pull <n>` — Pull Data (client #n)\n"
+                    "`/pull <n>` — Pull SCADA & JJM (client #n)\n"
+                    "`/pulljjm <n>` — Pull JJM Portal Only (client #n)\n"
                     "`/broadcast <n>` — Broadcast Report (client #n)\n"
-                    "`/pullall` — Pull Data on ALL clients\n"
+                    "`/pullall` — Pull SCADA & JJM on ALL clients\n"
+                    "`/pulljjmall` — Pull JJM Portal on ALL clients\n"
                     "`/broadcastall` — Broadcast on ALL clients\n"
                     "`/status` — Server health\n\n"
                     "🔐 *All actions require OTP confirmation.*"
@@ -788,10 +838,15 @@ def start_telegram_bot():
                 count = len(_tg_get_clients())
                 _tg_send(chat_id, f"✅ *Control Tower ONLINE*\n🖥 Active clients: *{count}*")
 
-            elif text.startswith("/pull ") or text.startswith("/broadcast "):
+            elif text.startswith("/pull ") or text.startswith("/broadcast ") or text.startswith("/pulljjm "):
                 parts = text.split()
-                action = "PULL_DATA" if parts[0] == "/pull" else "BROADCAST"
-                emoji = "📥" if action == "PULL_DATA" else "📤"
+                if parts[0] == "/pull":
+                    action = "PULL_DATA"
+                elif parts[0] == "/pulljjm":
+                    action = "PULL_JJM"
+                else:
+                    action = "BROADCAST"
+                emoji = "💧" if action == "PULL_JJM" else ("📥" if action == "PULL_DATA" else "📤")
                 try:
                     idx = int(parts[1]) - 1
                     clients = _tg_get_clients()
@@ -809,11 +864,16 @@ def start_telegram_bot():
                             f"_Expires in 60 seconds._"
                         )
                 except (ValueError, IndexError):
-                    _tg_send(chat_id, "❌ Usage: `/pull 1`  Use /clients for numbers.")
+                    _tg_send(chat_id, f"❌ Usage: `{parts[0]} 1`  Use /clients for numbers.")
 
-            elif text in ("/pullall", "/broadcastall"):
-                action = "PULL_DATA" if text == "/pullall" else "BROADCAST"
-                emoji = "📥" if action == "PULL_DATA" else "📤"
+            elif text in ("/pullall", "/broadcastall", "/pulljjmall"):
+                if text == "/pullall":
+                    action = "PULL_DATA"
+                elif text == "/pulljjmall":
+                    action = "PULL_JJM"
+                else:
+                    action = "BROADCAST"
+                emoji = "💧" if action == "PULL_JJM" else ("📥" if action == "PULL_DATA" else "📤")
                 clients = _tg_get_clients()
                 if not clients:
                     _tg_send(chat_id, "📭 No active clients found.")

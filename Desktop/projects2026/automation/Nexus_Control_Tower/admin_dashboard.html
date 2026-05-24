@@ -171,10 +171,19 @@
         <h3 style="margin-bottom:8px;font-size:1.1rem;display:flex;align-items:center;gap:8px">⚡ Live Portal Actions</h3>
         <p style="color:var(--muted);font-size:.85rem;margin-bottom:18px">Trigger instant manual attendance scrapes or report broadcasting across all active node machines in one single click.</p>
         <div style="display:flex;gap:12px;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="issueAllCmd('PULL_DATA')" style="background:#10b981">🔄 Pull Live JJM Data</button>
+          <button class="btn btn-primary" onclick="issueAllCmd('PULL_DATA')" style="background:#10b981">🔄 Pull SCADA Data</button>
+          <button class="btn btn-primary" onclick="issueAllCmd('PULL_JJM')" style="background:#0284c7">💧 Pull JJM Portal Data</button>
           <button class="btn btn-primary" onclick="issueAllCmd('BROADCAST')" style="background:#8b5cf6">📤 Broadcast Reports</button>
         </div>
         <div id="dashboard-cmd-status" style="margin-top:12px;font-size:.85rem;color:var(--muted)"></div>
+      </div>
+      <div class="card" style="background: linear-gradient(135deg, #0f172a, #1e293b); border-color: rgba(99, 102, 241, 0.4); box-shadow: 0 10px 30px rgba(99,102,241,0.1)">
+        <h3 style="margin-bottom:8px;font-size:1.1rem;display:flex;align-items:center;gap:8px">📊 Download Daily Report</h3>
+        <p style="color:var(--muted);font-size:.85rem;margin-bottom:18px">Download the consolidated Excel matrix report containing both SCADA and JJM Portal data.</p>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <input type="text" id="report-date-input" placeholder="dd-mm-yyyy" style="width:160px;margin-bottom:0" />
+          <button class="btn btn-primary" onclick="downloadDailyReport()" style="background:#6366f1">📥 Download Report</button>
+        </div>
       </div>
       <div class="card">
         <h3 style="margin-bottom:16px;font-size:1rem">Server Status</h3>
@@ -271,7 +280,8 @@
         </div>
         <button class="btn" style="background:var(--subtle);color:var(--text);border:1px solid var(--border);margin-bottom:24px" onclick="loadClients()">🔄 Refresh Clients</button>
         <div style="display:flex;gap:12px;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="issueCmd('PULL_DATA')" style="background:#10b981">📥 Trigger Pull Data</button>
+          <button class="btn btn-primary" onclick="issueCmd('PULL_DATA')" style="background:#10b981">📥 Trigger Pull SCADA</button>
+          <button class="btn btn-primary" onclick="issueCmd('PULL_JJM')" style="background:#0284c7">💧 Trigger Pull JJM</button>
           <button class="btn btn-primary" onclick="issueCmd('BROADCAST')" style="background:#8b5cf6">📤 Trigger Broadcast</button>
         </div>
         <div id="cmd-status" style="margin-top:16px;font-size:.9rem;color:var(--muted)"></div>
@@ -509,7 +519,26 @@ async function issueAllCmd(cmd){
   }
 }
 
+function downloadDailyReport(){
+  let date = document.getElementById('report-date-input').value.trim();
+  if(date && !/^\d{2}-\d{2}-\d{4}$/.test(date)){
+     toast('Please use dd-mm-yyyy format (e.g. 24-05-2026)', 'error');
+     return;
+  }
+  const url = `/api/admin/download_report?date=${date}&admin_secret=${ADMIN_PWD}`;
+  window.open(url, '_blank');
+}
+
 async function loadDashboard(){
+  // Pre-fill date input with today's date in dd-mm-yyyy format
+  try {
+    const today = new Date();
+    const dd = String(today.getDate()).padStart(2, '0');
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const yyyy = today.getFullYear();
+    document.getElementById('report-date-input').value = `${dd}-${mm}-${yyyy}`;
+  } catch(e) {}
+
   // Server status
   try{
     const r = await fetch('/api/health');

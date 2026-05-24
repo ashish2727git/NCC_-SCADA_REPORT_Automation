@@ -671,6 +671,8 @@ class NexusSyncPro(ctk.CTk):
                         
                         if c_text == "PULL_DATA":
                             self.trigger_manual_pull()
+                        elif c_text == "PULL_JJM":
+                            self.trigger_manual_jjm_pull()
                         elif c_text == "BROADCAST":
                             self.trigger_manual_send()
                             
@@ -740,6 +742,10 @@ del "%~f0"
         self.pull_btn = ctk.CTkButton(ctrl_frame, text="📥 PULL NEW DATA", fg_color="#f1f5f9", hover_color="#e2e8f0", 
                                      border_width=1, border_color=CLR_CYAN, text_color=CLR_CYAN, font=("Segoe UI", 13, "bold"), height=40, command=self.trigger_manual_pull)
         self.pull_btn.pack(fill="x", pady=5)
+        
+        self.pull_jjm_btn = ctk.CTkButton(ctrl_frame, text="💧 PULL JJM DATA", fg_color="#f1f5f9", hover_color="#e2e8f0", 
+                                     border_width=1, border_color=CLR_CYAN, text_color=CLR_CYAN, font=("Segoe UI", 13, "bold"), height=40, command=self.trigger_manual_jjm_pull)
+        self.pull_jjm_btn.pack(fill="x", pady=5)
         
         self.send_btn = ctk.CTkButton(ctrl_frame, text="📤 BROADCAST REPORT", fg_color=CLR_GREEN, hover_color="#059669", 
                                      text_color="#ffffff", font=("Segoe UI", 13, "bold"), height=40, command=self.trigger_manual_send)
@@ -1242,9 +1248,9 @@ del "%~f0"
         else:
              self.safe_history_update("[SYS] Workspace empty. Awaiting first download...")
 
-    def auto_fetch_jjm_count(self):
-        """Lightweight HTTP fetch — cached for 2 minutes."""
-        if (time.time() - self._jjm_cache["timestamp"]) < 120:
+    def auto_fetch_jjm_count(self, force=False):
+        """Lightweight HTTP fetch — cached for 2 minutes unless forced."""
+        if not force and (time.time() - self._jjm_cache["timestamp"]) < 120:
             return self._jjm_cache["count"]
 
         self.safe_log_update("> [WEB] Connecting to JJM UP Portal...")
@@ -1733,8 +1739,74 @@ del "%~f0"
                 for c in [s_c, u_c, n_c]:
                     c.fill, c.font, c.border, c.alignment = total_fill, Font(bold=True), border, Alignment(horizontal="center")
 
+            # ── JJM PORTAL SUMMARY SHEET ──
+            if hasattr(self, "jjm_list_data") and self.jjm_list_data:
+                try:
+                    ws_jjm = wb.create_sheet(title="JJM Portal Summary")
+                    ws_jjm.cell(row=1, column=1, value="Metric").font = Font(bold=True)
+                    ws_jjm.cell(row=1, column=2, value="Count").font = Font(bold=True)
+                    
+                    jjm_total = "0"
+                    jjm_live = "0"
+                    jjm_not_recv = "0"
+                    jjm_leftover = "0"
+                    if hasattr(self, "_jjm_cache") and "count" in self._jjm_cache:
+                        c_dict = self._jjm_cache["count"]
+                        if isinstance(c_dict, dict):
+                            jjm_total = c_dict.get("total", "0")
+                            jjm_live = c_dict.get("live", "0")
+                            jjm_not_recv = c_dict.get("not_received", "0")
+                            jjm_leftover = c_dict.get("leftover", "0")
+
+                    metrics = [
+                        ("Total JJM Schemes", jjm_total),
+                        ("Live Connected", jjm_live),
+                        ("Data Not Received", jjm_not_recv),
+                        ("Off-Grid / Missing", jjm_leftover)
+                    ]
+                    for idx, (m, val) in enumerate(metrics, 2):
+                        ws_jjm.cell(row=idx, column=1, value=m)
+                        ws_jjm.cell(row=idx, column=2, value=val)
+                    
+                    ws_jjm.cell(row=7, column=1, value="TOTAL SCHEMES").font = Font(bold=True)
+                    ws_jjm.cell(row=7, column=2, value="LIVE SCHEMES").font = Font(bold=True)
+                    ws_jjm.cell(row=7, column=3, value="NOT RECEIVED").font = Font(bold=True)
+                    ws_jjm.cell(row=7, column=4, value="OFF-GRID / MISSING").font = Font(bold=True)
+                    
+                    tot_lst = self.jjm_list_data.get("total", [])
+                    live_lst = self.jjm_list_data.get("live", [])
+                    nr_lst = self.jjm_list_data.get("not_recv", [])
+                    lo_lst = self.jjm_list_data.get("leftover", [])
+                    
+                    max_len = max(len(tot_lst), len(live_lst), len(nr_lst), len(lo_lst))
+                    for r in range(max_len):
+                        t_val = tot_lst[r] if r < len(tot_lst) else ""
+                        li_val = live_lst[r] if r < len(live_lst) else ""
+                        nr_val = nr_lst[r] if r < len(nr_lst) else ""
+                        lo_val = lo_lst[r] if r < len(lo_lst) else ""
+                        
+                        ws_jjm.cell(row=8+r, column=1, value=t_val)
+                        ws_jjm.cell(row=8+r, column=2, value=li_val)
+                        ws_jjm.cell(row=8+r, column=3, value=nr_val)
+                        ws_jjm.cell(row=8+r, column=4, value=lo_val)
+                except Exception as e_jjm:
+                    self.safe_log_update(f"⚠️ Could not write JJM Portal sheet: {e_jjm}")
+
             wb.save(final_path)
             self.safe_log_update(f"✅ Final Matrix Report Saved: {final_path}")
+
+            # Upload final matrix report to Control Tower server
+            try:
+                self.safe_log_update("> [PORTAL] Uploading report to Control Tower...")
+                with open(final_path, 'rb') as f_upload:
+                    files_payload = {'file': (final_filename, f_upload, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
+                    upload_resp = requests.post("http://devash.in/api/upload_report", files=files_payload, timeout=30)
+                    if upload_resp.status_code == 200:
+                        self.safe_log_update("✅ [PORTAL] Report uploaded successfully to Control Tower server.")
+                    else:
+                        self.safe_log_update(f"❌ [PORTAL] Upload failed (HTTP {upload_resp.status_code}): {upload_resp.text}")
+            except Exception as e:
+                self.safe_log_update(f"⚠️ Report upload failed: {e}")
 
         except Exception as e:
             self.safe_log_update(f"❌ Failed to generate matrix report: {str(e)}")
@@ -1914,7 +1986,75 @@ del "%~f0"
             self.contact_listbox.insert('end', f"  {c['name']}  •  {c['phone']}")
 
     def trigger_manual_pull(self): threading.Thread(target=self.robot_portal_download, kwargs={'force': True}, daemon=True).start()
+    def trigger_manual_jjm_pull(self): threading.Thread(target=self.pull_jjm_portal_data, daemon=True).start()
     def trigger_manual_send(self): threading.Thread(target=self.robot_whatsapp_blast, daemon=True).start()
+    
+    def pull_jjm_portal_data(self):
+        self.safe_log_update("\n[SYS] Initiating manual JJM portal data pull...")
+        jjm_data = self.auto_fetch_jjm_count(force=True)
+        if isinstance(jjm_data, str) or not jjm_data or jjm_data.get("total") == "0":
+            self.safe_log_update("❌ [JJM] Pull failed or returned empty data.")
+            return
+        
+        jjm_live = jjm_data.get("live", "0")
+        jjm_total = jjm_data.get("total", "0")
+        jjm_not_recv = jjm_data.get("not_received", "0")
+        jjm_leftover = jjm_data.get("leftover", "0")
+        
+        jjm_lists = jjm_data.get("_lists", {})
+        if jjm_lists:
+            self.jjm_list_data["total"] = jjm_lists.get("total", ["Data could not be fetched internally."])
+            self.jjm_list_data["live"] = jjm_lists.get("live", ["Data could not be fetched internally."])
+            self.jjm_list_data["not_recv"] = jjm_lists.get("not_received", ["Data could not be fetched internally."])
+            self.jjm_list_data["leftover"] = jjm_lists.get("leftover", ["Data could not be fetched internally."])
+
+        # Update UI Labels
+        self.after(0, lambda: self.jjm_total_lbl.configure(text=str(jjm_total)))
+        self.after(0, lambda: self.jjm_live_lbl.configure(text=str(jjm_live)))
+        self.after(0, lambda: self.jjm_not_recv_lbl.configure(text=str(jjm_not_recv)))
+        self.after(0, lambda: self.jjm_leftover_lbl.configure(text=str(jjm_leftover)))
+        
+        timestamp = datetime.now().strftime("%b %d - %I:%M %p")
+        self.safe_history_update(f"[+] JJM Pulled: {timestamp} | Live: {jjm_live} | Total: {jjm_total}")
+        
+        # Update export JSON
+        try:
+            import json
+            export_path = os.path.join(self.watch_folder, "nexus_live_data.json")
+            scada_part = {
+                "total": str(len(self.scada_data.get("total", []))),
+                "synced": str(len(self.scada_data.get("synced", []))),
+                "unsynced": str(len(self.scada_data.get("not_synced", []))),
+                "new_count": str(len(self.scada_data.get("new", []))),
+                "new_list": self.scada_data.get("new", [])
+            }
+            if os.path.exists(export_path):
+                try:
+                    with open(export_path, "r") as f:
+                        old_data = json.load(f)
+                        if "scada" in old_data:
+                            scada_part = old_data["scada"]
+                except Exception:
+                    pass
+                    
+            export_data = {
+                "jjm": {
+                    "total": str(jjm_total),
+                    "live": str(jjm_live),
+                    "not_received": str(jjm_not_recv),
+                    "leftover": str(jjm_leftover),
+                    "_lists": self.jjm_list_data
+                },
+                "scada": scada_part,
+                "timestamp": datetime.now().isoformat()
+            }
+            with open(export_path, "w") as f:
+                json.dump(export_data, f)
+            self.safe_log_update("[SYS] Live data JSON exported for bot (JJM pull only).")
+        except Exception as e:
+            self.safe_log_update(f"⚠️ Could not export live JSON: {e}")
+            
+        self.safe_log_update("✅ [JJM] JJM portal data pulled successfully.")
     
     def startup_check(self):
         self.rebuild_history_log()
