@@ -634,12 +634,25 @@ class NexusSyncPro(ctk.CTk):
                 if float(latest_ver) > float(current_ver):
                     self.safe_log_update(f"[OTA] Update available: v{latest_ver}. Downloading silently...")
                     dl_url = f"http://devash.in{data.get('download_url')}"
-                    exe_data = requests.get(dl_url, timeout=60).content
+                    dl_resp = requests.get(dl_url, timeout=60)
+
+                    # Validate: must be HTTP 200
+                    if dl_resp.status_code != 200:
+                        self.safe_log_update(f"[OTA] ⚠️ Update download failed (HTTP {dl_resp.status_code}). Will retry next cycle.")
+                        return
+
+                    exe_data = dl_resp.content
+
+                    # Validate: must start with Windows PE 'MZ' magic bytes
+                    if len(exe_data) < 2 or exe_data[:2] != b'MZ':
+                        self.safe_log_update("[OTA] ⚠️ Downloaded file is not a valid executable. Skipping update.")
+                        return
+
                     new_file = os.path.join(_BASE_DIR, "NexusSyncPro_Update.exe")
                     with open(new_file, "wb") as f:
                         f.write(exe_data)
                     self._update_pending_path = new_file
-                    self.safe_log_update("[OTA] ✅ Update staged. Applies at 7:00 PM shutdown (or restart now).")
+                    self.safe_log_update(f"[OTA] Update downloaded ({len(exe_data)//1024//1024} MB). Applies at 7:00 PM shutdown (or restart now).")
                     self.after(0, self._show_update_banner)
                 else:
                     self.safe_log_update("[SYS] Application is up to date.")
