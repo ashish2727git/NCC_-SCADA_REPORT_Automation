@@ -578,8 +578,11 @@ class NexusSyncPro(ctk.CTk):
         # Prepare clean environment for the new PyInstaller process
         env = os.environ.copy()
         env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+        
+        # Remove all PyInstaller-specific environment variables to force
+        # the new subprocess to perform a clean boot and extract its files.
         for key in list(env.keys()):
-            if key.startswith("_MEIPASS"):
+            if key.upper().startswith("_MEIPASS") or key.upper().startswith("_PYI_"):
                 try:
                     del env[key]
                 except:
