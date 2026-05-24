@@ -575,6 +575,16 @@ class NexusSyncPro(ctk.CTk):
         current_exe = sys.executable if getattr(sys, 'frozen', False) else sys.executable
         update_path = getattr(self, '_update_pending_path', None)
 
+        # Prepare clean environment for the new PyInstaller process
+        env = os.environ.copy()
+        env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+        for key in list(env.keys()):
+            if key.startswith("_MEIPASS"):
+                try:
+                    del env[key]
+                except:
+                    pass
+
         if update_path and os.path.exists(update_path):
             current_exe_path = sys.executable if getattr(sys, 'frozen', False) else None
             if current_exe_path and current_exe_path.endswith(".exe"):
@@ -591,19 +601,22 @@ class NexusSyncPro(ctk.CTk):
                     # Launch the new EXE and kill this old process
                     subprocess.Popen([current_exe_path] + sys.argv,
                                      creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-                                     close_fds=True)
+                                     close_fds=True,
+                                     env=env)
                     os._exit(0)
                 except Exception as e:
                     self.safe_log_update(f"[OTA] ⚠️ Restart fail (Privilege Error): {e}")
             
             # Fallback if uncompiled
             subprocess.Popen([current_exe] + sys.argv,
-                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                env=env)
             os._exit(0)
         else:
             # No update — just restart the current exe
             subprocess.Popen([current_exe] + sys.argv,
-                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                env=env)
             os._exit(0)
 
     def check_for_updates(self):
