@@ -34,6 +34,8 @@ keys_to_inject = {
     "TG_ADMIN_CHAT",
     "ADMIN_SECRET",
     "GODADDY_API_KEY",
+    "NEXUS_AWS_ACCESS_KEY_ID",
+    "NEXUS_AWS_SECRET_ACCESS_KEY",
 }
 env = [e for e in env if e["name"] not in keys_to_inject]
 
@@ -41,9 +43,15 @@ env = [e for e in env if e["name"] not in keys_to_inject]
 injected = []
 print("--- Debug: Environment keys in runner starting with AWS/TG/ADMIN/GODADDY ---")
 for k, v in os.environ.items():
-    if any(k.startswith(prefix) for prefix in ["AWS", "TG", "ADMIN", "GODADDY"]):
+    if any(k.startswith(prefix) for prefix in ["AWS", "TG", "ADMIN", "GODADDY", "NEXUS"]):
         print(f"Key: {k} | Length of Value: {len(v)}")
 print("-------------------------------------------------------------------------")
+
+# Map standard AWS credentials to custom NEXUS_ keys as well to bypass ECS reserved prefix limits
+for key in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]:
+    val = os.environ.get(key, "")
+    if val:
+        os.environ[f"NEXUS_{key}"] = val
 
 for key in keys_to_inject:
     value = os.environ.get(key, "")

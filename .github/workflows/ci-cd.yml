@@ -138,7 +138,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-docker
     if: github.ref == 'refs/heads/main'
-    environment: production
 
     steps:
       - name: Checkout code
@@ -154,20 +153,29 @@ jobs:
       - name: Download ECS task definition
         run: |
           aws ecs describe-task-definition \
-            --task-definition nexus-control-tower:25 \
-            --query taskDefinition > task-definition.json
-
-      - name: Inject Secrets
-        run: |
-          jq '.containerDefinitions[0].environment += [{"name": "TG_BOT_TOKEN", "value": "${{ secrets.TG_BOT_TOKEN }}"}, {"name": "TG_ADMIN_CHAT", "value": "${{ secrets.TG_ADMIN_CHAT }}"}, {"name": "GODADDY_API_KEY", "value": "${{ secrets.GODADDY_API_KEY }}"}]' task-definition.json > task-definition-injected.json
+            --task-definition nexus-control-tower \
+            --query taskDefinition \
+            --output json > task-definition-raw.json
+          cp task-definition-raw.json task-definition-clean.json
 
       - name: Update ECS task definition with new image
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: task-definition-injected.json
+          task-definition: task-definition-clean.json
           container-name: nexus-control-tower
           image: ${{ needs.build-docker.outputs.image_uri }}
+
+      - name: Inject AWS credentials and secrets AFTER render (prevents stripping)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_ADMIN_CHAT: ${{ secrets.TG_ADMIN_CHAT }}
+          ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+          GODADDY_API_KEY: ${{ secrets.GODADDY_API_KEY }}
+        run: |
+          python3 Desktop/projects2026/automation/.github/scripts/inject_secrets.py "${{ steps.task-def.outputs.task-definition }}"
 
       - name: Deploy to Amazon ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
@@ -184,6 +192,12 @@ jobs:
             --service nexus-control-tower-service \
             --health-check-grace-period-seconds 60 \
             --region ap-south-1
+
+      - name: Verify deployment — download endpoint must serve a valid EXE
+        run: |
+          pip install requests -q
+          sleep 20
+          python3 Desktop/projects2026/automation/.github/scripts/verify_deployment.py
 
       - name: Deployment Success Notification
         run: echo "🚀 Nexus Control Tower deployed successfully to ECS — ${{ github.sha }}"

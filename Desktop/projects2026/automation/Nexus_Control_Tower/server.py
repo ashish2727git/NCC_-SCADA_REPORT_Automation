@@ -36,9 +36,21 @@ S3_BUCKET = "nexus-sync-artifacts-802346121670"
 os.makedirs(ARTIFACTS_DIR, exist_ok=True)
 
 
+def get_s3_client():
+    aws_access_key = os.environ.get("NEXUS_AWS_ACCESS_KEY_ID") or os.environ.get("AWS_ACCESS_KEY_ID")
+    aws_secret_key = os.environ.get("NEXUS_AWS_SECRET_ACCESS_KEY") or os.environ.get("AWS_SECRET_ACCESS_KEY")
+    if aws_access_key and aws_secret_key:
+        return boto3.client(
+            's3',
+            region_name='ap-south-1',
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key
+        )
+    return boto3.client('s3', region_name='ap-south-1')
+
 def sync_db_from_s3():
     try:
-        s3 = boto3.client('s3', region_name='ap-south-1')
+        s3 = get_s3_client()
         s3.download_file(S3_BUCKET, DB_FILE, DB_FILE)
         logger.info("[DB] Successfully restored database from S3.")
     except Exception as e:
@@ -46,7 +58,7 @@ def sync_db_from_s3():
 
 def sync_db_to_s3():
     try:
-        s3 = boto3.client('s3', region_name='ap-south-1')
+        s3 = get_s3_client()
         s3.upload_file(DB_FILE, S3_BUCKET, DB_FILE)
         logger.info("[DB] Successfully backed up database to S3.")
     except Exception as e:
@@ -310,7 +322,7 @@ async def upload_report(file: UploadFile = File(...)):
     logger.info(f"[REPORT] Received report file: {filename}")
     
     try:
-        s3 = boto3.client('s3', region_name='ap-south-1')
+        s3 = get_s3_client()
         s3.upload_file(file_path, S3_BUCKET, f"reports/{filename}")
         logger.info(f"[REPORT] Successfully backed up report {filename} to S3.")
     except Exception as e:
@@ -333,7 +345,7 @@ def download_report(date: str = None, admin_secret: str = None):
         return FileResponse(file_path, filename=filename, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         
     try:
-        s3 = boto3.client('s3', region_name='ap-south-1')
+        s3 = get_s3_client()
         s3.download_file(S3_BUCKET, f"reports/{filename}", file_path)
         logger.info(f"[REPORT] Downloaded report {filename} from S3 for admin.")
         return FileResponse(file_path, filename=filename, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -354,7 +366,7 @@ from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 @app.get("/download/{filename}")
 def download_artifact(filename: str):
     try:
-        s3 = boto3.client('s3', region_name='ap-south-1')
+        s3 = get_s3_client()
         url = s3.generate_presigned_url(
             'get_object',
             Params={'Bucket': S3_BUCKET, 'Key': f'releases/{filename}'},
@@ -522,7 +534,7 @@ def root_page():
 @app.get("/download_latest")
 def download_latest_route():
     try:
-        s3 = boto3.client('s3', region_name='ap-south-1')
+        s3 = get_s3_client()
         url = s3.generate_presigned_url(
             'get_object',
             Params={'Bucket': S3_BUCKET, 'Key': 'releases/latest.exe'},
