@@ -112,8 +112,7 @@ class NexusSyncPro(ctk.CTk):
         self.geometry(f"{width}x{height}+{x}+{y}")
         
         self.after(0, lambda: self.state('zoomed')) # Start Maximized for best visibility
-        self.configure(fg_color=CLR_BG)
-        
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.license_file = os.path.join(_BASE_DIR, ".nexus_license")
         if self._verify_saved_license():
             if self._has_credentials():
@@ -748,6 +747,33 @@ del "%~f0"
 
         time.sleep(2)
         os._exit(0)
+
+    def on_closing(self):
+        """Handle window close event manually. Silently applies any pending update before exiting."""
+        update_path = getattr(self, '_update_pending_path', None)
+        if update_path and os.path.exists(update_path):
+            try:
+                current_exe = sys.executable if getattr(sys, 'frozen', False) else None
+                if current_exe and current_exe.endswith(".exe"):
+                    bat_path = os.path.join(_BASE_DIR, "nexus_updater.bat")
+                    bat_content = f"""@echo off
+ping -n 3 127.0.0.1 > nul
+copy /Y "{update_path}" "{current_exe}"
+del "{update_path}"
+schtasks /create /tn "NexusSyncPro_DailyOpen" /tr "\"{current_exe}\"" /sc daily /st 08:00 /f > nul
+del "%~f0"
+"""
+                    with open(bat_path, 'w') as f:
+                        f.write(bat_content)
+                    import subprocess
+                    subprocess.Popen(
+                        ['cmd', '/c', bat_path],
+                        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                        close_fds=True
+                    )
+            except Exception:
+                pass
+        self.destroy()
 
     def setup_ui(self):
         # --- SIDEBAR ---

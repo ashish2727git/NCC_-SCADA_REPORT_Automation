@@ -62,6 +62,12 @@ def init_db():
                     is_active INTEGER DEFAULT 1,
                     client_name TEXT
                  )''')
+    # Safe migration: Add last_seen column if missing
+    try:
+        c.execute("ALTER TABLE licenses ADD COLUMN last_seen INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+        
     # Table for versions
     c.execute('''CREATE TABLE IF NOT EXISTS versions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,9 +98,6 @@ sync_db_from_s3()
 
 # Initialize tables and seed default keys
 init_db()
-
-# Back up the seeded/initialized database immediately to S3
-sync_db_to_s3()
 
 # ─── Admin Secret (simple protection) ─────────────────────────────────────
 ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "nexus-admin-2026")
@@ -148,6 +151,7 @@ def admin_add_license(data: AdminLicense):
         conn.close()
         raise HTTPException(status_code=400, detail="License key already exists")
     conn.close()
+    threading.Thread(target=sync_db_to_s3, daemon=True).start()
     return {"status": "success", "message": f"License {data.key} added"}
 
 @app.post("/api/admin/logs")
@@ -173,17 +177,24 @@ def admin_revoke_license(data: RevokeRequest):
         raise HTTPException(status_code=404, detail="License key not found")
     conn.commit()
     conn.close()
+    threading.Thread(target=sync_db_to_s3, daemon=True).start()
     return {"status": "revoked", "key": data.key}
 
 @app.get("/api/admin/list_licenses")
 def admin_list_licenses():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("SELECT key, client_name, hwid, is_active FROM licenses")
+    c.execute("SELECT key, client_name, hwid, is_active, last_seen FROM licenses")
     rows = c.fetchall()
     conn.close()
     return [
-        {"key": r[0], "client_name": r[1], "hwid": r[2], "is_active": bool(r[3])}
+        {
+            "key": r[0],
+            "client_name": r[1],
+            "hwid": r[2],
+            "is_active": bool(r[3]),
+            "last_seen": r[4] or 0
+        }
         for r in rows
     ]
 
@@ -227,8 +238,11 @@ def issue_remote_command_all(data: CommandIssueAll):
 def poll_commands(hwid: str):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    # Update last_seen for client heartbeat
+    c.execute("UPDATE licenses SET last_seen=? WHERE hwid=?", (int(time.time()), hwid))
     c.execute("SELECT id, command FROM remote_commands WHERE hwid=? AND is_executed=0 ORDER BY id ASC", (hwid,))
     rows = c.fetchall()
+    conn.commit()
     conn.close()
     return [{"id": r[0], "command": r[1]} for r in rows]
 
@@ -257,10 +271,13 @@ def verify_license(data: LicenseCheck):
     if not is_active:
         raise HTTPException(status_code=403, detail="License is deactivated")
     
+    # Update last_seen since the client verified the license at startup
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE licenses SET last_seen=? WHERE key=?", (int(time.time()), data.key))
+    
     # If hwid in DB is empty, this is the first activation, bind it
     if not saved_hwid:
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
         c.execute("UPDATE licenses SET hwid=? WHERE key=?", (data.hwid, data.key))
         conn.commit()
         conn.close()
@@ -269,8 +286,11 @@ def verify_license(data: LicenseCheck):
     
     # If hwid exists, it must match
     if saved_hwid != data.hwid:
+        conn.close()
         raise HTTPException(status_code=403, detail="License is bound to another device")
 
+    conn.commit()
+    conn.close()
     return {"status": "success", "message": "License verified."}
 
 REPORTS_DIR = "reports"
@@ -563,14 +583,63 @@ def _tg_send(chat_id: str, text: str):
     except Exception as e:
         logger.warning(f"[TG] Failed to send message: {e}")
 
+def _tg_send_with_keyboard(chat_id: str, text: str, keyboard: list):
+    """Send a message with an inline keyboard."""
+    try:
+        http_client.post(
+            f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "Markdown",
+                "reply_markup": {"inline_keyboard": keyboard}
+            },
+            timeout=5
+        )
+    except Exception as e:
+        logger.warning(f"[TG] Failed to send message with keyboard: {e}")
+
+def _tg_edit_message(chat_id: str, message_id: int, text: str, keyboard: list = None):
+    """Edit an existing message's text and optional keyboard."""
+    try:
+        payload = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": "Markdown"
+        }
+        if keyboard is not None:
+            payload["reply_markup"] = {"inline_keyboard": keyboard}
+        http_client.post(
+            f"https://api.telegram.org/bot{TG_BOT_TOKEN}/editMessageText",
+            json=payload,
+            timeout=5
+        )
+    except Exception as e:
+        logger.warning(f"[TG] Failed to edit message: {e}")
+
+def _tg_answer_callback(callback_query_id: str, text: str = None):
+    """Answer an inline button callback query to remove loading spinner."""
+    try:
+        payload = {"callback_query_id": callback_query_id}
+        if text:
+            payload["text"] = text
+        http_client.post(
+            f"https://api.telegram.org/bot{TG_BOT_TOKEN}/answerCallbackQuery",
+            json=payload,
+            timeout=5
+        )
+    except Exception as e:
+        logger.warning(f"[TG] Failed to answer callback: {e}")
+
 def _tg_get_clients():
     """Return list of bound, active clients from DB."""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("SELECT client_name, hwid FROM licenses WHERE is_active=1 AND hwid != ''")
+    c.execute("SELECT client_name, hwid, last_seen FROM licenses WHERE is_active=1 AND hwid != ''")
     rows = c.fetchall()
     conn.close()
-    return rows  # [(client_name, hwid), ...]
+    return rows  # [(client_name, hwid, last_seen), ...]
 
 def _tg_queue_command(hwid: str, command: str):
     """Insert a remote command into the DB queue."""
@@ -579,38 +648,35 @@ def _tg_queue_command(hwid: str, command: str):
     c.execute("INSERT INTO remote_commands (hwid, command) VALUES (?, ?)", (hwid, command))
     conn.commit()
     conn.close()
+    # Back up updated DB to S3 in background
+    threading.Thread(target=sync_db_to_s3, daemon=True).start()
+
+def _tg_send_help(chat_id: str):
+    help_text = (
+        "*⚡ Nexus Control Tower Bot*\n\n"
+        "Welcome! You can control your deployment using the buttons below:"
+    )
+    keyboard = [
+        [{"text": "🖥 List Connected Clients", "callback_data": "list_clients"}],
+        [{"text": "✅ Check Server Status", "callback_data": "server_status"}],
+        [
+            {"text": "🔄 Pull SCADA (All)", "callback_data": "confirm_all_PULL_DATA"},
+            {"text": "💧 Pull JJM (All)", "callback_data": "confirm_all_PULL_JJM"}
+        ],
+        [{"text": "📤 Broadcast Reports (All)", "callback_data": "confirm_all_BROADCAST"}]
+    ]
+    _tg_send_with_keyboard(chat_id, help_text, keyboard)
 
 def start_telegram_bot():
-    """Long-polling Telegram bot with OTP verification before command execution."""
+    """Long-polling Telegram bot with interactive inline buttons."""
     if not TG_BOT_TOKEN or not TG_ADMIN_CHAT:
         logger.warning("[TG] TG_BOT_TOKEN or TG_ADMIN_CHAT not set. Telegram bot disabled.")
         return
 
     logger.info("[TG] Telegram Admin Bot started.")
-    _tg_send(TG_ADMIN_CHAT, "✅ *Nexus Control Tower* is online.\nType /help for commands.")
+    _tg_send(TG_ADMIN_CHAT, "✅ *Nexus Control Tower* is online.\nUse the /help command to show the control panel.")
 
-    # OTP store: { otp_code: {action, hwid, client_name, expires_at} }
-    import random
-    pending_otps = {}
     offset = 0
-
-    def _generate_otp(action, hwid, client_name):
-        """Generate a unique 6-digit OTP and store it with 60-second expiry."""
-        otp = str(random.randint(100000, 999999))
-        pending_otps[otp] = {
-            "action": action,
-            "hwid": hwid,
-            "client_name": client_name,
-            "expires_at": time.time() + 60
-        }
-        return otp
-
-    def _cleanup_expired_otps():
-        """Remove any expired OTPs."""
-        now = time.time()
-        expired = [k for k, v in pending_otps.items() if v["expires_at"] < now]
-        for k in expired:
-            del pending_otps[k]
 
     while True:
         try:
@@ -624,272 +690,167 @@ def start_telegram_bot():
             time.sleep(5)
             continue
 
-        _cleanup_expired_otps()
-
         for update in updates:
             offset = update["update_id"] + 1
-            msg = update.get("message", {})
-            chat_id = str(msg.get("chat", {}).get("id", ""))
-            text = msg.get("text", "").strip()
+            
+            # ─── Inline Callback Queries ───────────────────────────────────────
+            if "callback_query" in update:
+                cb = update["callback_query"]
+                chat_id = str(cb.get("message", {}).get("chat", {}).get("id", ""))
+                msg_id = cb.get("message", {}).get("message_id")
+                query_id = cb.get("id")
+                data = cb.get("data", "")
 
-            # ── Security: only respond to designated admin chat ──
-            if chat_id != TG_ADMIN_CHAT:
-                _tg_send(chat_id, "⛔ *Access Denied.* You are not authorized to use this bot.")
-                logger.warning(f"[TG] Unauthorized access attempt from chat_id={chat_id}")
-                continue
+                if chat_id != TG_ADMIN_CHAT:
+                    _tg_answer_callback(query_id, "⛔ Access Denied")
+                    continue
 
-            # ── OTP Confirmation check ──
-            if text.isdigit() and len(text) == 6:
-                if text in pending_otps:
-                    entry = pending_otps.pop(text)
-                    if time.time() > entry["expires_at"]:
-                        _tg_send(chat_id, "⏰ *OTP Expired.* Please re-issue the command.")
-                    else:
-                        _tg_queue_command(entry["hwid"], entry["action"])
-                        emoji = "📥" if entry["action"] == "PULL_DATA" else "📤"
-                        _tg_send(chat_id,
-                            f"✅ *Verified & Executed!*\n"
-                            f"{emoji} *{entry['action']}* has been sent to *{entry['client_name']}*.\n"
-                            f"They will execute it within 15 seconds."
-                        )
-                        logger.info(f"[TG] OTP confirmed. Queued {entry['action']} for {entry['client_name']}")
-                else:
-                    _tg_send(chat_id, "❌ *Invalid or expired OTP.* Please re-issue the command.")
-                continue
-
-            # ── Standard Commands ──
-            if text in ("/start", "/help"):
-                _tg_send(chat_id,
-                    "*⚡ Nexus Admin Bot*\n\n"
-                    "`/clients` — List all connected machines\n"
-                    "`/pull <n>` — Pull Data on client #n\n"
-                    "`/broadcast <n>` — Broadcast Report on client #n\n"
-                    "`/pullall` — Pull Data on ALL clients\n"
-                    "`/broadcastall` — Broadcast on ALL clients\n"
-                    "`/status` — Server health check\n\n"
-                    "⚠️ *All actions require OTP confirmation.*"
-                )
-
-            elif text == "/clients":
-                clients = _tg_get_clients()
-                if not clients:
-                    _tg_send(chat_id, "📭 No active bound clients found.")
-                else:
-                    lines = [f"`{i+1}.` *{name}*" for i, (name, hwid) in enumerate(clients)]
-                    _tg_send(chat_id, "*🖥 Connected Clients:*\n" + "\n".join(lines))
-
-            elif text == "/status":
-                count = len(_tg_get_clients())
-                _tg_send(chat_id, f"✅ *Control Tower is ONLINE*\n🖥 Active clients: *{count}*")
-
-            elif text.startswith("/pull ") or text.startswith("/broadcast "):
-                parts = text.split()
-                action = "PULL_DATA" if parts[0] == "/pull" else "BROADCAST"
-                emoji = "📥" if action == "PULL_DATA" else "📤"
-                try:
-                    idx = int(parts[1]) - 1
+                if data == "menu_help":
+                    _tg_answer_callback(query_id)
+                    _tg_send_help(chat_id)
+                    
+                elif data == "list_clients":
+                    _tg_answer_callback(query_id)
                     clients = _tg_get_clients()
-                    if idx < 0 or idx >= len(clients):
-                        _tg_send(chat_id, "❌ Invalid number. Use /clients to see the list.")
+                    if not clients:
+                        _tg_send_with_keyboard(chat_id, "📭 No bound clients found.", [[{"text": "🔙 Back to Menu", "callback_data": "menu_help"}]])
                     else:
-                        name, hwid = clients[idx]
-                        otp = _generate_otp(action, hwid, name)
-                        _tg_send(chat_id,
-                            f"🔐 *Verification Required*\n\n"
-                            f"Action: {emoji} *{action}*\n"
-                            f"Target: *{name}*\n\n"
-                            f"Reply with this OTP code to confirm:\n"
-                            f"```\n{otp}\n```\n"
-                            f"_Code expires in 60 seconds._"
-                        )
-                        logger.info(f"[TG] OTP {otp} generated for {action} → {name}")
-                except (ValueError, IndexError):
-                    _tg_send(chat_id, "❌ Usage: `/pull 1` or `/broadcast 2`\nUse /clients to get client numbers.")
+                        _tg_send(chat_id, "*🖥 Connected Clients:*\n(Select an action below to run on a machine)")
+                        now = int(time.time())
+                        for name, hwid, last_seen in clients:
+                            is_online = (last_seen and now - last_seen <= 40)
+                            status_str = "🟢 ONLINE" if is_online else "🔴 OFFLINE"
+                            
+                            client_text = f"🖥 *{name}*\nStatus: {status_str}\nHWID: `{hwid}`"
+                            keyboard = [
+                                [
+                                    {"text": "🔄 Pull SCADA", "callback_data": f"confirm_{hwid}_PULL_DATA"},
+                                    {"text": "💧 Pull JJM", "callback_data": f"confirm_{hwid}_PULL_JJM"}
+                                ],
+                                [
+                                    {"text": "📤 Broadcast Report", "callback_data": f"confirm_{hwid}_BROADCAST"}
+                                ]
+                            ]
+                            _tg_send_with_keyboard(chat_id, client_text, keyboard)
+                        _tg_send_with_keyboard(chat_id, "---", [[{"text": "🔙 Back to Menu", "callback_data": "menu_help"}]])
 
-            elif text in ("/pullall", "/broadcastall"):
-                action = "PULL_DATA" if text == "/pullall" else "BROADCAST"
-                emoji = "📥" if action == "PULL_DATA" else "📤"
-                clients = _tg_get_clients()
-                if not clients:
-                    _tg_send(chat_id, "📭 No active clients found.")
-                else:
-                    otp = _generate_otp(action, "__ALL__", f"ALL {len(clients)} clients")
-                    # Store all HWIDs in the entry for bulk execution
-                    pending_otps[otp]["all_hwids"] = [hwid for _, hwid in clients]
-                    _tg_send(chat_id,
-                        f"🔐 *Bulk Verification Required*\n\n"
-                        f"Action: {emoji} *{action}* on *ALL {len(clients)} clients*\n\n"
-                        f"Reply with this OTP code to confirm:\n"
-                        f"```\n{otp}\n```\n"
-                        f"_Code expires in 60 seconds._"
+                elif data == "server_status":
+                    _tg_answer_callback(query_id)
+                    clients = _tg_get_clients()
+                    now = int(time.time())
+                    online_count = sum(1 for _, _, ls in clients if ls and now - ls <= 40)
+                    status_text = f"✅ *Control Tower ONLINE*\n🖥 Live connected clients: *{online_count}*"
+                    _tg_send_with_keyboard(chat_id, status_text, [[{"text": "🔙 Back to Menu", "callback_data": "menu_help"}]])
+
+                elif data.startswith("confirm_all_"):
+                    _tg_answer_callback(query_id)
+                    action = data.replace("confirm_all_", "")
+                    action_label = "SCADA & JJM Pull" if action == "PULL_DATA" else ("JJM Pull" if action == "PULL_JJM" else "Broadcast")
+                    _tg_edit_message(
+                        chat_id, msg_id,
+                        f"⚠️ *Confirm Bulk Action*\nAre you sure you want to trigger *{action_label}* on *ALL* clients?",
+                        [
+                            [
+                                {"text": "🚀 Execute All", "callback_data": f"exec_all_{action}"},
+                                {"text": "❌ Cancel", "callback_data": "cancel_action"}
+                            ]
+                        ]
                     )
 
-            else:
-                _tg_send(chat_id, "❓ Unknown command. Type /help for available commands.")
+                elif data.startswith("exec_all_"):
+                    _tg_answer_callback(query_id, "Executing bulk command...")
+                    action = data.replace("exec_all_", "")
+                    clients = _tg_get_clients()
+                    for _, h, _ in clients:
+                        _tg_queue_command(h, action)
+                    
+                    action_label = "SCADA & JJM Pull" if action == "PULL_DATA" else ("JJM Pull" if action == "PULL_JJM" else "Broadcast")
+                    _tg_edit_message(chat_id, msg_id, f"✅ *Bulk Command Executed!*\nSent *{action_label}* to all {len(clients)} clients.")
 
-    # Override bulk command execution for __ALL__ targets
-    # (handled inside OTP confirmation block above via all_hwids key)
+                elif data.startswith("confirm_"):
+                    # Format: confirm_<HWID>_<ACTION>
+                    _tg_answer_callback(query_id)
+                    parts = data.split("_", 2)
+                    hwid = parts[1]
+                    action = parts[2]
+                    
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("SELECT client_name FROM licenses WHERE hwid=?", (hwid,))
+                    row = c.fetchone()
+                    conn.close()
+                    client_name = row[0] if row else hwid
+                    
+                    action_label = "SCADA & JJM Pull" if action == "PULL_DATA" else ("JJM Pull" if action == "PULL_JJM" else "Broadcast")
+                    _tg_edit_message(
+                        chat_id, msg_id,
+                        f"⚠️ *Confirm Action*\nTrigger *{action_label}* on client *{client_name}*?",
+                        [
+                            [
+                                {"text": "🚀 Execute", "callback_data": f"exec_{hwid}_{action}"},
+                                {"text": "❌ Cancel", "callback_data": "cancel_action"}
+                            ]
+                        ]
+                    )
 
+                elif data.startswith("exec_"):
+                    # Format: exec_<HWID>_<ACTION>
+                    _tg_answer_callback(query_id, "Queuing command...")
+                    parts = data.split("_", 2)
+                    hwid = parts[1]
+                    action = parts[2]
+                    
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("SELECT client_name FROM licenses WHERE hwid=?", (hwid,))
+                    row = c.fetchone()
+                    conn.close()
+                    client_name = row[0] if row else hwid
+                    
+                    _tg_queue_command(hwid, action)
+                    action_label = "SCADA & JJM Pull" if action == "PULL_DATA" else ("JJM Pull" if action == "PULL_JJM" else "Broadcast")
+                    _tg_edit_message(chat_id, msg_id, f"✅ *Command Executed!*\nSent *{action_label}* to *{client_name}*.")
 
-# Patch the OTP confirmation to handle bulk commands
-_original_start = start_telegram_bot
+                elif data == "cancel_action":
+                    _tg_answer_callback(query_id, "Cancelled")
+                    _tg_edit_message(chat_id, msg_id, "❌ *Action Cancelled.*")
 
-def start_telegram_bot():
-    """Wrapper that patches bulk OTP handling."""
-    import random
-    if not TG_BOT_TOKEN or not TG_ADMIN_CHAT:
-        logger.warning("[TG] Bot credentials missing. Disabled.")
-        return
+                continue
 
-    logger.info("[TG] Telegram Admin Bot started (OTP-secured).")
-    _tg_send(TG_ADMIN_CHAT, "✅ *Nexus Control Tower* is online.\nType /help for commands.")
-
-    pending_otps = {}
-    offset = 0
-
-    def _generate_otp(action, hwid, client_name, all_hwids=None):
-        otp = str(random.randint(100000, 999999))
-        pending_otps[otp] = {
-            "action": action,
-            "hwid": hwid,
-            "client_name": client_name,
-            "all_hwids": all_hwids,
-            "expires_at": time.time() + 60
-        }
-        return otp
-
-    while True:
-        try:
-            resp = http_client.get(
-                f"https://api.telegram.org/bot{TG_BOT_TOKEN}/getUpdates",
-                params={"timeout": 20, "offset": offset},
-                timeout=25
-            )
-            updates = resp.json().get("result", [])
-        except Exception:
-            time.sleep(5)
-            continue
-
-        # Cleanup expired OTPs
-        now = time.time()
-        for k in list(pending_otps):
-            if pending_otps[k]["expires_at"] < now:
-                del pending_otps[k]
-
-        for update in updates:
-            offset = update["update_id"] + 1
+            # ─── Standard Text Messages ────────────────────────────────────────
             msg = update.get("message", {})
             chat_id = str(msg.get("chat", {}).get("id", ""))
             text = msg.get("text", "").strip()
+
+            if not text:
+                continue
 
             if chat_id != TG_ADMIN_CHAT:
                 _tg_send(chat_id, "⛔ *Access Denied.* Unauthorized.")
-                logger.warning(f"[TG] Unauthorized access from {chat_id}")
+                logger.warning(f"[TG] Unauthorized message attempt from chat_id={chat_id}")
                 continue
 
-            # ─── OTP Confirmation ────────────────────────────────────────
-            if text.isdigit() and len(text) == 6:
-                if text in pending_otps:
-                    entry = pending_otps.pop(text)
-                    if time.time() > entry["expires_at"]:
-                        _tg_send(chat_id, "⏰ *OTP Expired.* Please re-issue the command.")
-                    else:
-                        emoji = "💧" if entry["action"] == "PULL_JJM" else ("📥" if entry["action"] == "PULL_DATA" else "📤")
-                        if entry.get("all_hwids"):
-                            for h in entry["all_hwids"]:
-                                _tg_queue_command(h, entry["action"])
-                            _tg_send(chat_id, f"✅ *Verified!* {emoji} *{entry['action']}* sent to *{entry['client_name']}*.")
-                        else:
-                            _tg_queue_command(entry["hwid"], entry["action"])
-                            _tg_send(chat_id,
-                                f"✅ *Verified & Executed!*\n"
-                                f"{emoji} *{entry['action']}* → *{entry['client_name']}*\n"
-                                f"_Will run within 15 seconds._"
-                            )
-                        logger.info(f"[TG] Command {entry['action']} queued for {entry['client_name']}")
-                else:
-                    _tg_send(chat_id, "❌ *Invalid or expired OTP.*")
-                continue
-
-            # ─── Commands ────────────────────────────────────────────────
-            if text in ("/start", "/help"):
-                _tg_send(chat_id,
-                    "*⚡ Nexus Admin Bot*\n\n"
-                    "`/clients` — List connected machines\n"
-                    "`/pull <n>` — Pull SCADA & JJM (client #n)\n"
-                    "`/pulljjm <n>` — Pull JJM Portal Only (client #n)\n"
-                    "`/broadcast <n>` — Broadcast Report (client #n)\n"
-                    "`/pullall` — Pull SCADA & JJM on ALL clients\n"
-                    "`/pulljjmall` — Pull JJM Portal on ALL clients\n"
-                    "`/broadcastall` — Broadcast on ALL clients\n"
-                    "`/status` — Server health\n\n"
-                    "🔐 *All actions require OTP confirmation.*"
-                )
-
+            if text in ("/start", "/help", "/menu"):
+                _tg_send_help(chat_id)
+            elif text == "/status":
+                clients = _tg_get_clients()
+                now = int(time.time())
+                online_count = sum(1 for _, _, ls in clients if ls and now - ls <= 40)
+                _tg_send(chat_id, f"✅ *Control Tower ONLINE*\n🖥 Live connected clients: *{online_count}*")
             elif text == "/clients":
                 clients = _tg_get_clients()
                 if not clients:
                     _tg_send(chat_id, "📭 No bound clients found.")
                 else:
-                    lines = [f"`{i+1}.` *{name}*" for i, (name, _) in enumerate(clients)]
+                    now = int(time.time())
+                    lines = []
+                    for i, (name, hwid, last_seen) in enumerate(clients):
+                        is_online = (last_seen and now - last_seen <= 40)
+                        status_str = "🟢 ONLINE" if is_online else "🔴 OFFLINE"
+                        lines.append(f"`{i+1}.` *{name}* ({status_str})")
                     _tg_send(chat_id, "*🖥 Connected Clients:*\n" + "\n".join(lines))
-
-            elif text == "/status":
-                count = len(_tg_get_clients())
-                _tg_send(chat_id, f"✅ *Control Tower ONLINE*\n🖥 Active clients: *{count}*")
-
-            elif text.startswith("/pull ") or text.startswith("/broadcast ") or text.startswith("/pulljjm "):
-                parts = text.split()
-                if parts[0] == "/pull":
-                    action = "PULL_DATA"
-                elif parts[0] == "/pulljjm":
-                    action = "PULL_JJM"
-                else:
-                    action = "BROADCAST"
-                emoji = "💧" if action == "PULL_JJM" else ("📥" if action == "PULL_DATA" else "📤")
-                try:
-                    idx = int(parts[1]) - 1
-                    clients = _tg_get_clients()
-                    if idx < 0 or idx >= len(clients):
-                        _tg_send(chat_id, "❌ Invalid number. Use /clients first.")
-                    else:
-                        name, hwid = clients[idx]
-                        otp = _generate_otp(action, hwid, name)
-                        _tg_send(chat_id,
-                            f"🔐 *Verification Required*\n\n"
-                            f"Action: {emoji} *{action}*\n"
-                            f"Target: *{name}*\n\n"
-                            f"Reply with OTP to confirm:\n"
-                            f"```\n{otp}\n```\n"
-                            f"_Expires in 60 seconds._"
-                        )
-                except (ValueError, IndexError):
-                    _tg_send(chat_id, f"❌ Usage: `{parts[0]} 1`  Use /clients for numbers.")
-
-            elif text in ("/pullall", "/broadcastall", "/pulljjmall"):
-                if text == "/pullall":
-                    action = "PULL_DATA"
-                elif text == "/pulljjmall":
-                    action = "PULL_JJM"
-                else:
-                    action = "BROADCAST"
-                emoji = "💧" if action == "PULL_JJM" else ("📥" if action == "PULL_DATA" else "📤")
-                clients = _tg_get_clients()
-                if not clients:
-                    _tg_send(chat_id, "📭 No active clients found.")
-                else:
-                    all_hwids = [h for _, h in clients]
-                    otp = _generate_otp(action, "__ALL__", f"ALL {len(clients)} clients", all_hwids=all_hwids)
-                    _tg_send(chat_id,
-                        f"🔐 *Bulk Verification Required*\n\n"
-                        f"Action: {emoji} *{action}* on *{len(clients)} clients*\n\n"
-                        f"Reply with OTP to confirm:\n"
-                        f"```\n{otp}\n```\n"
-                        f"_Expires in 60 seconds._"
-                    )
-
             else:
-                _tg_send(chat_id, "❓ Unknown command. Type /help.")
+                _tg_send(chat_id, "❓ Unknown command. Type /help to open the Control Panel.")
 
 
 def update_cloudflare_dns():

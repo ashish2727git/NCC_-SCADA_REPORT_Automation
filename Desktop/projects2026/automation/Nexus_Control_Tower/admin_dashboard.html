@@ -47,7 +47,7 @@
 
   /* ── Cards ── */
   .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:20px}
-  .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px}
+  .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
   .stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px}
   .stat-label{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
   .stat-value{font-size:2rem;font-weight:700;margin-top:6px}
@@ -159,8 +159,12 @@
           <div class="stat-value blue" id="stat-total">—</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Active</div>
+          <div class="stat-label">Active Licenses</div>
           <div class="stat-value green" id="stat-active">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Live Clients</div>
+          <div class="stat-value green" id="stat-live" style="color: #10b981;">—</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Revoked</div>
@@ -186,8 +190,19 @@
         </div>
       </div>
       <div class="card">
-        <h3 style="margin-bottom:16px;font-size:1rem">Server Status</h3>
-        <div id="server-status" style="color:var(--muted)">Checking...</div>
+        <h3 style="margin-bottom:16px;font-size:1.1rem">System Status</h3>
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:8px;">
+            <span style="font-weight:600;">Control Tower Server</span>
+            <div id="server-status">Checking...</div>
+          </div>
+          <div>
+            <div style="font-weight:600; margin-bottom:8px;">Client Machines Status</div>
+            <div id="clients-status-list" style="display:flex; flex-direction:column; gap:8px;">
+              <div class="loading">Loading clients...</div>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="card">
         <h3 style="margin-bottom:16px;font-size:1rem">Recent Licenses</h3>
@@ -237,8 +252,9 @@
               <tr>
                 <th>Key</th>
                 <th>Client</th>
-                <th>Status</th>
+                <th>License Status</th>
                 <th>Hardware ID</th>
+                <th>Live Status</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -415,21 +431,27 @@ function copyKey(){
 // ── Licenses ──────────────────────────────────────────────
 async function loadLicenses(){
   const tbody = document.getElementById('license-table-body');
-  tbody.innerHTML='<tr><td colspan="5" class="empty">Loading...</td></tr>';
+  tbody.innerHTML='<tr><td colspan="6" class="empty">Loading...</td></tr>';
   try{
     const r = await fetch('/api/admin/list_licenses');
     const data = await r.json();
-    if(!data.length){ tbody.innerHTML='<tr><td colspan="5" class="empty">No licenses yet</td></tr>'; return; }
-    tbody.innerHTML = data.map(l=>`
+    if(!data.length){ tbody.innerHTML='<tr><td colspan="6" class="empty">No licenses yet</td></tr>'; return; }
+    tbody.innerHTML = data.map(l=>{
+      const now = Math.floor(Date.now() / 1000);
+      const isOnline = l.is_active && l.hwid && (now - l.last_seen <= 40);
+      const liveStatus = l.hwid ? (isOnline ? '<span class="badge badge-active">🟢 Online</span>' : '<span class="badge badge-revoked">🔴 Offline</span>') : '<span class="badge badge-unbound">Unbound</span>';
+      return `
       <tr>
         <td class="mono">${l.key}</td>
         <td>${l.client_name}</td>
         <td><span class="badge ${l.is_active?'badge-active':'badge-revoked'}">${l.is_active?'Active':'Revoked'}</span></td>
         <td><span class="badge badge-unbound">${l.hwid||'Unbound'}</span></td>
+        <td>${liveStatus}</td>
         <td>${l.is_active?`<button class="btn btn-danger btn-sm" onclick="quickRevoke('${l.key}')">Revoke</button>`:'—'}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
   } catch(e){
-    tbody.innerHTML='<tr><td colspan="5" class="empty">Cannot reach server</td></tr>';
+    tbody.innerHTML='<tr><td colspan="6" class="empty">Cannot reach server</td></tr>';
   }
 }
 
@@ -467,7 +489,12 @@ async function loadClients(){
     const data = await r.json();
     const bound = data.filter(l=>l.is_active && l.hwid);
     if(!bound.length){ sel.innerHTML='<option>No bound clients found</option>'; return; }
-    sel.innerHTML = bound.map(l=>`<option value="${l.hwid}">${l.client_name} (${l.hwid.substring(0,12)}...)</option>`).join('');
+    const now = Math.floor(Date.now() / 1000);
+    sel.innerHTML = bound.map(l=>{
+      const isOnline = now - l.last_seen <= 40;
+      const statusText = isOnline ? "🟢 Online" : "🔴 Offline";
+      return `<option value="${l.hwid}">${l.client_name} (${statusText} - ${l.hwid.substring(0,6)}...)</option>`;
+    }).join('');
   } catch(e){ sel.innerHTML='<option>Cannot reach server</option>'; }
 }
 
@@ -545,13 +572,14 @@ async function loadDashboard(){
     const d = await r.json();
     document.getElementById('server-status').innerHTML=
       `<span style="color:var(--success)">● ONLINE</span> — ${d.service}`;
-    document.getElementById('sidebar-dot').classList.add('online');
+    document.getElementById('sidebar-dot').className = 'status-dot online';
   } catch(e){
     document.getElementById('server-status').innerHTML=
       `<span style="color:var(--danger)">● OFFLINE</span>`;
+    document.getElementById('sidebar-dot').className = 'status-dot';
   }
 
-  // Stats & recent
+  // Stats & recent & client machine statuses
   try{
     const r = await fetch('/api/admin/list_licenses');
     const data = await r.json();
@@ -559,6 +587,45 @@ async function loadDashboard(){
     document.getElementById('stat-total').textContent=data.length;
     document.getElementById('stat-active').textContent=active;
     document.getElementById('stat-revoked').textContent=data.length-active;
+
+    const now = Math.floor(Date.now() / 1000);
+    const live = data.filter(l=>l.is_active && l.hwid && (now - l.last_seen <= 40)).length;
+    document.getElementById('stat-live').textContent=live;
+
+    // Render clients statuses list
+    const boundClients = data.filter(l=>l.is_active && l.hwid);
+    const clientsStatusList = document.getElementById('clients-status-list');
+    if (!boundClients.length) {
+      clientsStatusList.innerHTML = '<div style="color:var(--muted); font-size:.9rem;">No hardware-bound clients registered yet.</div>';
+    } else {
+      clientsStatusList.innerHTML = boundClients.map(l => {
+        const isOnline = now - l.last_seen <= 40;
+        const dotColor = isOnline ? 'var(--success)' : 'var(--danger)';
+        const statusLabel = isOnline ? 'ONLINE' : 'OFFLINE';
+        
+        let lastSeenText = '';
+        if (!isOnline && l.last_seen > 0) {
+          const date = new Date(l.last_seen * 1000);
+          lastSeenText = ` <span style="font-size:0.75rem; color:var(--muted);">(Last seen: ${date.toLocaleString()})</span>`;
+        } else if (!l.last_seen) {
+          lastSeenText = ` <span style="font-size:0.75rem; color:var(--muted);">(Never connected)</span>`;
+        }
+
+        return `
+          <div style="display:flex; justify-content:space-between; align-items:center; background:var(--surface); border:1px solid var(--border); padding:10px 14px; border-radius:8px;">
+            <div>
+              <span style="font-weight:600; color:var(--text);">${l.client_name}</span>
+              ${lastSeenText}
+              <div style="font-size:0.75rem; color:var(--muted); font-family:'JetBrains Mono',monospace; margin-top:2px;">HWID: ${l.hwid}</div>
+            </div>
+            <span style="display:inline-flex; align-items:center; gap:6px; font-weight:600; font-size:0.85rem; color:${dotColor}">
+              <span style="width:8px; height:8px; border-radius:50%; background:${dotColor}; display:inline-block; ${isOnline ? 'animation:pulse 2s infinite' : ''}"></span>
+              ${statusLabel}
+            </span>
+          </div>
+        `;
+      }).join('');
+    }
 
     const recent = data.slice(-5).reverse();
     document.getElementById('recent-licenses').innerHTML = recent.length ?
@@ -569,8 +636,10 @@ async function loadDashboard(){
   } catch(e){
     document.getElementById('stat-total').textContent='?';
     document.getElementById('stat-active').textContent='?';
+    document.getElementById('stat-live').textContent='?';
     document.getElementById('stat-revoked').textContent='?';
     document.getElementById('recent-licenses').textContent='Cannot reach server';
+    document.getElementById('clients-status-list').textContent='Cannot reach server';
   }
 }
 </script>
