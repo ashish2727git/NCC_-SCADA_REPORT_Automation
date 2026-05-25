@@ -47,6 +47,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
+CLIENT_VERSION = "14.3"
 PORTAL_URL = "http://122.186.209.30:8068/NCC/Sitapur/Sign-In-Users.php"
 CONFIG_FILE = os.path.join(_BASE_DIR, "nexus_config.json")
 
@@ -88,7 +89,7 @@ CRED_FILE = os.path.join(_BASE_DIR, "bot_credentials.json")
 class NexusSyncPro(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("NEXUS SYNC | Enterprise Suite v13.1 (Production)")
+        self.title(f"NEXUS SYNC | Enterprise Suite v{CLIENT_VERSION} (Production)")
         
         # --- Dynamic Resolution Discovery & Auto-Scaling ---
         screen_w = self.winfo_screenwidth()
@@ -408,7 +409,7 @@ class NexusSyncPro(ctk.CTk):
 
     def manual_check_updates(self):
         """Manually triggered update check from sidebar button."""
-        CURRENT_VER = "14.2"
+        CURRENT_VER = CLIENT_VERSION
         try:
             resp = requests.get("http://devash.in/api/update_check", timeout=6)
             if resp.status_code == 200:
@@ -628,7 +629,7 @@ class NexusSyncPro(ctk.CTk):
             if resp.status_code == 200:
                 data = resp.json()
                 latest_ver = data.get("latest_version", "0.0")
-                current_ver = "14.2"
+                current_ver = CLIENT_VERSION
 
                 if float(latest_ver) > float(current_ver):
                     self.safe_log_update(f"[OTA] Update available: v{latest_ver}. Downloading silently...")

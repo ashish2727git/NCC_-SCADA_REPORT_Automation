@@ -3,9 +3,10 @@ import sqlite3
 import logging
 import threading
 import time
+import asyncio
 import requests as http_client
 from fastapi import FastAPI, HTTPException, Request, Header, UploadFile, File
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
@@ -61,6 +62,11 @@ def sync_db_to_s3():
         s3 = get_s3_client()
         s3.upload_file(DB_FILE, S3_BUCKET, DB_FILE)
         logger.info("[DB] Successfully backed up database to S3.")
+        
+        # Save rotating timestamped backup
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        s3.upload_file(DB_FILE, S3_BUCKET, f"backups/nexus_db_{timestamp}.sqlite")
+        logger.info(f"[DB] Saved rotating timestamped database backup to S3: backups/nexus_db_{timestamp}.sqlite")
     except Exception as e:
         logger.error(f"[DB] Failed to backup database to S3: {e}")
 
@@ -120,6 +126,15 @@ ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "nexus-admin-2026")
 #   TG_ADMIN_CHAT : your personal Telegram chat ID (get it from @userinfobot)
 TG_BOT_TOKEN  = os.environ.get("TG_BOT_TOKEN", "")
 TG_ADMIN_CHAT = os.environ.get("TG_ADMIN_CHAT", "")
+
+class PublishVersionRequest(BaseModel):
+    version_str: str
+    filename: str
+    admin_secret: str
+
+class RestoreBackupRequest(BaseModel):
+    backup_key: str
+    admin_secret: str
 
 class LicenseCheck(BaseModel):
     key: str
@@ -355,11 +370,52 @@ def download_report(date: str = None, admin_secret: str = None):
 
 @app.get("/api/update_check")
 def check_update():
-    # Returns the actual latest version so clients only update when necessary
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT version_str, filename FROM versions WHERE is_latest=1 ORDER BY id DESC LIMIT 1")
+        row = c.fetchone()
+        conn.close()
+        if row:
+            version_str, filename = row
+            return {
+                "latest_version": version_str,
+                "download_url": f"/download/{filename}"
+            }
+    except Exception as e:
+        logger.error(f"[DB] Error checking latest version in database: {e}")
+    
+    # Fallback to hardcoded version for backward compatibility or safety
     return {
         "latest_version": "14.2",
         "download_url": "/download/latest.exe"
     }
+
+@app.post("/api/admin/publish_version")
+def publish_version(data: PublishVersionRequest):
+    if data.admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        # Reset all other versions is_latest to 0
+        c.execute("UPDATE versions SET is_latest=0")
+        # Insert new version
+        c.execute("INSERT INTO versions (version_str, filename, is_latest) VALUES (?, ?, 1)", 
+                  (data.version_str, data.filename))
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        logger.error(f"[DB] Error inserting version into database: {e}")
+        raise HTTPException(status_code=500, detail="Failed to publish version")
+    conn.close()
+    
+    # Trigger database sync to S3 to persist the newly published version
+    threading.Thread(target=sync_db_to_s3, daemon=True).start()
+    
+    logger.info(f"[VERSION] Successfully published new version: v{data.version_str} ({data.filename})")
+    return {"status": "success", "message": f"Version {data.version_str} published."}
 
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 
@@ -533,16 +589,29 @@ def root_page():
 
 @app.get("/download_latest")
 def download_latest_route():
+    # Try finding the latest filename in the DB versions table first
+    filename = "latest.exe"
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT filename FROM versions WHERE is_latest=1 ORDER BY id DESC LIMIT 1")
+        row = c.fetchone()
+        conn.close()
+        if row and row[0]:
+            filename = row[0]
+    except Exception as e:
+        logger.warning(f"[DB] Error fetching latest version filename for download: {e}")
+        
     try:
         s3 = get_s3_client()
         url = s3.generate_presigned_url(
             'get_object',
-            Params={'Bucket': S3_BUCKET, 'Key': 'releases/latest.exe'},
+            Params={'Bucket': S3_BUCKET, 'Key': f'releases/{filename}'},
             ExpiresIn=3600
         )
         return RedirectResponse(url=url)
     except Exception as e:
-        logger.error(f"[S3] Failed to generate presigned URL for latest.exe: {e}")
+        logger.error(f"[S3] Failed to generate presigned URL for {filename}: {e}")
         return HTMLResponse("<body style='background:#0f172a; color:white; text-align:center; padding-top:50px; font-family:sans-serif;'><h1>Server Error</h1><p>The update package is currently being generated in Cloud Storage. Please try again.</p></body>", status_code=404)
 
 @app.get("/portfolio", response_class=HTMLResponse)
@@ -900,8 +969,150 @@ def update_cloudflare_dns():
     except Exception as e:
         logger.error(f"Error updating Cloudflare DNS: {e}")
 
+@app.get("/api/admin/list_backups")
+def list_backups(admin_secret: str = None):
+    if admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    try:
+        s3 = get_s3_client()
+        resp = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix="backups/")
+        backups = []
+        if "Contents" in resp:
+            for item in resp["Contents"]:
+                key = item["Key"]
+                # Skip the prefix itself if listed
+                if key == "backups/":
+                    continue
+                backups.append({
+                    "key": key,
+                    "size": item["Size"],
+                    "last_modified": item["LastModified"].isoformat()
+                })
+        # Sort by last_modified descending (most recent first)
+        backups.sort(key=lambda x: x["last_modified"], reverse=True)
+        return backups
+    except Exception as e:
+        logger.error(f"[S3] Error listing database backups: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list S3 backups: {str(e)}")
+
+@app.post("/api/admin/restore_backup")
+def restore_backup(data: RestoreBackupRequest):
+    if data.admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+        
+    logger.info(f"[DB] Restoring database from S3 backup key: {data.backup_key}")
+    try:
+        s3 = get_s3_client()
+        s3.download_file(S3_BUCKET, data.backup_key, DB_FILE)
+        logger.info("[DB] Successfully restored database file locally from S3 backup key.")
+    except Exception as e:
+        logger.error(f"[S3] Error downloading database backup key {data.backup_key}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to download S3 backup file: {str(e)}")
+        
+    # Re-sync this newly restored file to the root database key on S3 so that future boots/containers fetch this version
+    try:
+        s3.upload_file(DB_FILE, S3_BUCKET, DB_FILE)
+        logger.info("[DB] Restored database version successfully promoted to root S3 database object.")
+    except Exception as e:
+        logger.error(f"[S3] Failed to upload restored database to root S3 key: {e}")
+        
+    return {"status": "success", "message": "Database successfully restored from backup."}
+
+@app.get("/api/admin/log_stream")
+async def log_stream(admin_secret: str = None):
+    if admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+        
+    async def event_generator():
+        if not os.path.exists(LOG_FILE):
+            yield "data: [SYSTEM] Log file not found.\n\n"
+            return
+            
+        # Send the last 50 lines first
+        try:
+            with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+                for line in lines[-50:]:
+                    yield f"data: {line.strip()}\n\n"
+        except Exception as e:
+            yield f"data: [SYSTEM] Error reading logs: {str(e)}\n\n"
+            
+        # Tail the file continuously
+        try:
+            with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+                f.seek(0, os.SEEK_END)
+                while True:
+                    line = f.readline()
+                    if not line:
+                        await asyncio.sleep(0.5)
+                        continue
+                    yield f"data: {line.strip()}\n\n"
+        except Exception as e:
+            logger.error(f"[LOGS] Error during log streaming generator: {e}")
+            yield f"data: [SYSTEM] Streaming disconnected: {str(e)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+def monitor_client_status():
+    """Background thread that monitors active client statuses and alerts Telegram chat on transitions."""
+    if not TG_BOT_TOKEN or not TG_ADMIN_CHAT:
+        return
+        
+    logger.info("[MONITOR] Client status monitoring thread started.")
+    
+    # Initialize state of all active bound clients to prevent alert spamming at startup
+    last_known_states = {}
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT hwid, client_name, last_seen FROM licenses WHERE is_active=1 AND hwid IS NOT NULL AND hwid != ''")
+        rows = c.fetchall()
+        conn.close()
+        now = int(time.time())
+        for hwid, name, last_seen in rows:
+            is_online = bool(last_seen and now - last_seen <= 40)
+            last_known_states[hwid] = is_online
+    except Exception as e:
+        logger.error(f"[MONITOR] Error seeding startup client states: {e}")
+
+    while True:
+        try:
+            time.sleep(30)
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute("SELECT hwid, client_name, last_seen FROM licenses WHERE is_active=1 AND hwid IS NOT NULL AND hwid != ''")
+            rows = c.fetchall()
+            conn.close()
+            
+            now = int(time.time())
+            for hwid, name, last_seen in rows:
+                is_online = bool(last_seen and now - last_seen <= 40)
+                
+                # If we didn't track this client yet, seed it
+                if hwid not in last_known_states:
+                    last_known_states[hwid] = is_online
+                    continue
+                    
+                prev_state = last_known_states[hwid]
+                if is_online != prev_state:
+                    # State transition occurred!
+                    last_known_states[hwid] = is_online
+                    if is_online:
+                        msg = f"🟢 *Client Online*\nMachine *{name}* (`{hwid[:6]}...`) has connected and is now online."
+                    else:
+                        msg = f"⚠️ *Client Offline*\nMachine *{name}* (`{hwid[:6]}...`) has disconnected and is offline."
+                    
+                    logger.info(f"[MONITOR] Status Alert: {name} online={is_online}")
+                    _tg_send(TG_ADMIN_CHAT, msg)
+        except Exception as e:
+            logger.error(f"[MONITOR] Error in status monitoring loop: {e}")
+
 # Update Cloudflare DNS to point devash.in to this container's new ephemeral IP in background
 threading.Thread(target=update_cloudflare_dns, daemon=True).start()
+
+# Start active client heartbeat monitoring background thread
+threading.Thread(target=monitor_client_status, daemon=True).start()
 
 if TG_BOT_TOKEN and TG_ADMIN_CHAT:
     t = threading.Thread(target=start_telegram_bot, daemon=True)

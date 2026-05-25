@@ -89,6 +89,21 @@ jobs:
           aws s3 cp dist/${{ env.EXE_NAME }} s3://${{ env.S3_BUCKET }}/releases/${{ env.EXE_NAME }}
           aws s3 cp dist/${{ env.EXE_NAME }} s3://${{ env.S3_BUCKET }}/releases/latest.exe
           Write-Host "✅ EXE uploaded to S3 as ${{ env.EXE_NAME }} and latest.exe"
+          
+          # Publish version dynamically to the control tower database
+          $version = (Get-Date -Format "yyyy.MM.dd")
+          $body = @{
+              version_str = $version
+              filename = "${{ env.EXE_NAME }}"
+              admin_secret = "${{ secrets.ADMIN_SECRET }}"
+          } | ConvertTo-Json
+          
+          try {
+              $resp = Invoke-RestMethod -Uri "http://devash.in/api/admin/publish_version" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 10
+              Write-Host "✅ Successfully published version to database: $version"
+          } catch {
+              Write-Host "⚠️ Warning: Failed to publish version to backend API: $_"
+          }
 
   # ─── JOB 3: Build & Push Docker Image to ECR ────────────────────────────
   build-docker:
