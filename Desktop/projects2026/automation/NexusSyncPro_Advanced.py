@@ -48,7 +48,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "14.5"
+CLIENT_VERSION = "14.6"
 PORTAL_URL = "http://122.186.209.30:8068/NCC/Sitapur/Sign-In-Users.php"
 CONFIG_FILE = os.path.join(_BASE_DIR, "nexus_config.json")
 
@@ -706,6 +706,19 @@ class NexusSyncPro(ctk.CTk):
                             self.trigger_manual_jjm_pull()
                         elif c_text == "BROADCAST":
                             self.trigger_manual_send()
+                        elif c_text == "FORCE_UPDATE":
+                            self.safe_log_update("[REMOTE] Force Update command received. Running update sequence...")
+                            def do_force_update():
+                                try:
+                                    self.check_for_updates()
+                                    if getattr(self, '_update_pending_path', None):
+                                        self.safe_log_update("[REMOTE] Update ready. Triggering restart...")
+                                        self._restart_app()
+                                    else:
+                                        self.safe_log_update("[REMOTE] Already up to date or update check returned no package.")
+                                except Exception as e_fu:
+                                    self.safe_log_update(f"[REMOTE] ❌ Force Update failed: {e_fu}")
+                            threading.Thread(target=do_force_update, daemon=True).start()
                             
                         # Acknowledge execution so it's removed from queue
                         requests.post("http://devash.in/api/ack_command", json={"command_id": c_id}, timeout=5)
