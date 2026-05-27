@@ -48,7 +48,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "14.4"
+CLIENT_VERSION = "14.5"
 PORTAL_URL = "http://122.186.209.30:8068/NCC/Sitapur/Sign-In-Users.php"
 CONFIG_FILE = os.path.join(_BASE_DIR, "nexus_config.json")
 
@@ -921,15 +921,20 @@ del "%~f0"
         self.history_terminal = ctk.CTkTextbox(self.history_container, fg_color="#f3f4f6", text_color=CLR_CYAN, font=("Consolas", 11))
         self.history_terminal.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Middle Metrics Frame (JJM)
+        # Middle Metrics Frame (JJM) - Row 1
         self.metrics_container = ctk.CTkFrame(self.display, fg_color="transparent")
-        self.metrics_container.pack(fill="x", pady=(0, 15))
+        self.metrics_container.pack(fill="x", pady=(0, 5))
         
         self.jjm_total_lbl = self._create_metric_card(self.metrics_container, "TOTAL JJM SCHEMES", "0", CLR_CYAN, command=lambda e: self.show_list_popup("JJM TOTAL", self.jjm_list_data.get("total", [])))
         self.jjm_live_lbl = self._create_metric_card(self.metrics_container, "LIVE CONNECTED", "0", CLR_GREEN, command=lambda e: self.show_list_popup("JJM LIVE CONNECTED", self.jjm_list_data.get("live", [])))
         self.jjm_not_recv_lbl = self._create_metric_card(self.metrics_container, "DATA NOT RECEIVED", "0", CLR_GOLD, command=lambda e: self.show_list_popup("JJM NOT RECEIVED", self.jjm_list_data.get("not_recv", [])))
-        self.jjm_leftover_lbl = self._create_metric_card(self.metrics_container, "OFF-GRID / MISSING", "0", "#ff4d4d", command=lambda e: self.show_list_popup("JJM OFF-GRID / MISSING", self.jjm_list_data.get("leftover", [])))
-        self.jjm_new_lbl = self._create_metric_card(self.metrics_container, "NEWLY ADDED IN JJM", "0", "#ff4d4d", command=lambda e: self.show_list_popup("JJM NEWLY ADDED", self.jjm_list_data.get("new", [])))
+
+        # Middle Metrics Frame (JJM) - Row 2
+        self.metrics_container_2 = ctk.CTkFrame(self.display, fg_color="transparent")
+        self.metrics_container_2.pack(fill="x", pady=(0, 15))
+        
+        self.jjm_leftover_lbl = self._create_metric_card(self.metrics_container_2, "OFF-GRID / MISSING", "0", "#ff4d4d", command=lambda e: self.show_list_popup("JJM OFF-GRID / MISSING", self.jjm_list_data.get("leftover", [])))
+        self.jjm_new_lbl = self._create_metric_card(self.metrics_container_2, "NEWLY ADDED IN JJM", "0", "#ff4d4d", command=lambda e: self.show_list_popup("JJM NEWLY ADDED", self.jjm_list_data.get("new", [])))
 
         # SCADA Metrics Frame
         self.scada_metrics_container = ctk.CTkFrame(self.display, fg_color="transparent")
