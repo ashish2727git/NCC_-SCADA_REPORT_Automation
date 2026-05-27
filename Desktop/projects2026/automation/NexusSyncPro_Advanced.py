@@ -27,6 +27,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 import selenium.webdriver.chrome.webdriver 
 from webdriver_manager.chrome import ChromeDriverManager
 import winreg as reg
+import json
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import warnings
@@ -289,7 +290,8 @@ class NexusSyncPro(ctk.CTk):
             "total": ["Detailed per-scheme list not locally extracted.", "JJM portal aggregates these numbers at district level."],
             "live": ["Detailed per-scheme list not locally extracted.", "JJM portal aggregates these numbers at district level."],
             "not_recv": ["Detailed per-scheme list not locally extracted.", "JJM portal aggregates these numbers at district level."],
-            "leftover": ["Detailed per-scheme list not locally extracted.", "(Computed aggregate difference)."]
+            "leftover": ["Detailed per-scheme list not locally extracted.", "(Computed aggregate difference)."],
+            "new": []
         }
         
         # Telegram Bot state
@@ -927,6 +929,7 @@ del "%~f0"
         self.jjm_live_lbl = self._create_metric_card(self.metrics_container, "LIVE CONNECTED", "0", CLR_GREEN, command=lambda e: self.show_list_popup("JJM LIVE CONNECTED", self.jjm_list_data.get("live", [])))
         self.jjm_not_recv_lbl = self._create_metric_card(self.metrics_container, "DATA NOT RECEIVED", "0", CLR_GOLD, command=lambda e: self.show_list_popup("JJM NOT RECEIVED", self.jjm_list_data.get("not_recv", [])))
         self.jjm_leftover_lbl = self._create_metric_card(self.metrics_container, "OFF-GRID / MISSING", "0", "#ff4d4d", command=lambda e: self.show_list_popup("JJM OFF-GRID / MISSING", self.jjm_list_data.get("leftover", [])))
+        self.jjm_new_lbl = self._create_metric_card(self.metrics_container, "NEWLY ADDED IN JJM", "0", "#ff4d4d", command=lambda e: self.show_list_popup("JJM NEWLY ADDED", self.jjm_list_data.get("new", [])))
 
         # SCADA Metrics Frame
         self.scada_metrics_container = ctk.CTkFrame(self.display, fg_color="transparent")
@@ -1118,7 +1121,8 @@ del "%~f0"
                 f"<b>2</b> — ✅ Live Connected List in jjm\n"
                 f"<b>3</b> — ⚠️ Not Connected List in jjm\n"
                 f"<b>4</b> — 🚨 Off-Grid Schemes in jjm\n"
-                f"<b>5</b> — ⭐ Newly Added Schemes in scada\n\n"
+                f"<b>5</b> — ⭐ Newly Added Schemes in scada\n"
+                f"<b>6</b> — 🌟 Newly Added Schemes in jjm\n\n"
                 f"<i>Data fetched live from server</i> ✅"
             )
 
@@ -1131,6 +1135,7 @@ del "%~f0"
             j_liv = self.jjm_live_lbl.cget("text")
             j_nr = self.jjm_not_recv_lbl.cget("text")
             j_miss = self.jjm_leftover_lbl.cget("text")
+            j_new = self.jjm_new_lbl.cget("text")
             
             s_tot = self.scada_total_lbl.cget("text")
             s_sync = self.scada_sync_lbl.cget("text")
@@ -1144,7 +1149,8 @@ del "%~f0"
                 f"  Total Integrated : {j_tot}\n"
                 f"  Live Connected   : {j_liv}\n"
                 f"  Not Receiving    : {j_nr}\n"
-                f"  Off-Grid/Missing : {j_miss}\n\n"
+                f"  Off-Grid/Missing : {j_miss}\n"
+                f"  Newly Added      : {j_new}\n\n"
                 f"🟢 <b>SCADA</b>\n"
                 f"  Total Schemes : {s_tot}\n"
                 f"  Synced Today  : {s_sync}\n"
@@ -1183,6 +1189,14 @@ del "%~f0"
                 lines = "\n".join(f"{i+1}. {x}" for i, x in enumerate(n))
                 return f"⭐ <b>NEWLY ADDED (Count: {len(n)})</b>\n{lines}"
             return "⭐ No new schemes added today yet."
+
+        if cmd == "6":
+            self.log_bot("[BOT] Fetching newly added JJM schemes...")
+            n = self.jjm_list_data.get("new", [])
+            if n:
+                lines = "\n".join(f"{i+1}. {x}" for i, x in enumerate(n))
+                return f"🌟 <b>NEWLY ADDED IN JJM (Count: {len(n)})</b>\n{lines}"
+            return "🌟 No new schemes added in JJM today yet."
         return None
 
     def _create_metric_card(self, parent, title, val, color, command=None):
@@ -1378,6 +1392,23 @@ del "%~f0"
                             
                             leftover_list = sorted(list(set(tot_list) - set(live_list) - set(not_recv_list)))
                             
+                            # Determine daily new JJM schemes
+                            daily_new_jjm = []
+                            if tot_list:
+                                try:
+                                    os.makedirs(self.watch_folder, exist_ok=True)
+                                    baseline_path = os.path.join(self.watch_folder, "jjm_baseline.json")
+                                    if not os.path.exists(baseline_path):
+                                        with open(baseline_path, "w", encoding="utf-8") as f_base:
+                                            json.dump(tot_list, f_base)
+                                    else:
+                                        with open(baseline_path, "r", encoding="utf-8") as f_base:
+                                            baseline_list = json.load(f_base)
+                                        if isinstance(baseline_list, list):
+                                            daily_new_jjm = list(set(tot_list) - set(baseline_list))
+                                except Exception as e_base:
+                                    self.safe_log_update(f"⚠️ Could not process JJM baseline: {e_base}")
+
                             tot_connected = int(re.sub(r'\D', '', tot_val) or 0)
                             live_connected = int(re.sub(r'\D', '', live_val) or 0)
                             not_received = int(re.sub(r'\D', '', not_recv_val) or 0)
@@ -1394,7 +1425,8 @@ del "%~f0"
                                     "total": tot_list,
                                     "live": live_list,
                                     "not_received": not_recv_list,
-                                    "leftover": leftover_list
+                                    "leftover": leftover_list,
+                                    "new": sorted(daily_new_jjm)
                                 }
                             }
                             self._jjm_cache = {"count": result, "timestamp": time.time()}
@@ -1510,6 +1542,7 @@ del "%~f0"
                 self.jjm_list_data["live"] = jjm_lists.get("live", ["Data could not be fetched internally."])
                 self.jjm_list_data["not_recv"] = jjm_lists.get("not_received", ["Data could not be fetched internally."])
                 self.jjm_list_data["leftover"] = jjm_lists.get("leftover", ["Data could not be fetched internally."])
+                self.jjm_list_data["new"] = jjm_lists.get("new", [])
 
             df = pd.read_excel(latest_file_path, header=None, nrows=15)
             header_row = df.notna().sum(axis=1).idxmax()
@@ -1552,15 +1585,23 @@ del "%~f0"
             if new_gp_count > 0:
                 joined_names = ", ".join(sorted(daily_new_gps))
                 new_gp_text = f"\nNewly Added Schemes- {new_gp_count} ({joined_names})"
+                
+            new_jjm_count = len(self.jjm_list_data.get("new", []))
+            new_jjm_text = ""
+            if new_jjm_count > 0:
+                joined_jjm_names = ", ".join(sorted(self.jjm_list_data["new"]))
+                new_jjm_text = f"\nNewly Added Schemes in JJM- {new_jjm_count} ({joined_jjm_names})"
             
-            report = f"JJM PORTAL LIVE: {jjm_live} | TOTAL: {jjm_total} | NOT REC: {jjm_not_recv} | MISSING: {jjm_leftover}\nSCADA TOTAL: {len(df)}\nSYNCED: {len(synced)}\nUNSYNCED: {len(not_synced)}\nNEW ADDED: {new_gp_count}\n\n"
+            report = f"JJM PORTAL LIVE: {jjm_live} | TOTAL: {jjm_total} | NOT REC: {jjm_not_recv} | MISSING: {jjm_leftover} | NEW ADDED: {new_jjm_count}\nSCADA TOTAL: {len(df)}\nSYNCED: {len(synced)}\nUNSYNCED: {len(not_synced)}\nNEW ADDED: {new_gp_count}\n\n"
             report += "✅ SYNCED LIST:\n" + ", ".join(synced[gp_col].astype(str).tolist()) + "\n\n"
             report += "❌ NOT SYNCED LIST:\n" + ", ".join(not_synced[gp_col].astype(str).tolist()) + "\n\n"
             if new_gp_count > 0:
-                report += "⭐ NEWLY ADDED LIST:\n" + joined_names
+                report += "⭐ NEWLY ADDED LIST:\n" + joined_names + "\n\n"
+            if new_jjm_count > 0:
+                report += "🌟 NEWLY ADDED IN JJM:\n" + joined_jjm_names
             
             greet = "Good Evening Sir," if datetime.now().hour >= 16 else ("Good Afternoon Sir," if datetime.now().hour >= 12 else "Good Morning Sir,")
-            preview = f"Date: {datetime.today().strftime('%d.%m.%Y')}\n\n{greet}\nNo of schemes connected with SCADA- {len(synced)}\nNo of schemes Lives in JJM Portal- {jjm_live}{new_gp_text}\n\nToday Schemes listed in SCADA- {len(df)}."
+            preview = f"Date: {datetime.today().strftime('%d.%m.%Y')}\n\n{greet}\nNo of schemes connected with SCADA- {len(synced)}\nNo of schemes Lives in JJM Portal- {jjm_live}{new_gp_text}{new_jjm_text}\n\nToday Schemes listed in SCADA- {len(df)}."
             
             self.last_analysis_msg = preview
             self.safe_report_update(report, preview)
@@ -1576,7 +1617,8 @@ del "%~f0"
             self.after(0, lambda: self.jjm_live_lbl.configure(text=str(jjm_live)))
             self.after(0, lambda: self.jjm_not_recv_lbl.configure(text=str(jjm_not_recv)))
             self.after(0, lambda: self.jjm_leftover_lbl.configure(text=str(jjm_leftover)))
-
+            self.after(0, lambda: self.jjm_new_lbl.configure(text=str(new_jjm_count)))
+ 
             self.after(0, lambda: self.scada_total_lbl.configure(text=str(len(self.scada_data["total"]))))
             self.after(0, lambda: self.scada_sync_lbl.configure(text=str(len(self.scada_data["synced"]))))
             self.after(0, lambda: self.scada_unsync_lbl.configure(text=str(len(self.scada_data["not_synced"]))))
@@ -1588,13 +1630,14 @@ del "%~f0"
             
             # --- Export Live Data for Bot ---
             try:
-                import json
                 export_data = {
                     "jjm": {
                         "total": str(jjm_total),
                         "live": str(jjm_live),
                         "not_received": str(jjm_not_recv),
                         "leftover": str(jjm_leftover),
+                        "new_count": str(new_jjm_count),
+                        "new_list": self.jjm_list_data.get("new", []),
                         "_lists": self.jjm_list_data
                     },
                     "scada": {
@@ -1818,33 +1861,38 @@ del "%~f0"
                         ("Total JJM Schemes", jjm_total),
                         ("Live Connected", jjm_live),
                         ("Data Not Received", jjm_not_recv),
-                        ("Off-Grid / Missing", jjm_leftover)
+                        ("Off-Grid / Missing", jjm_leftover),
+                        ("Newly Added Schemes", str(len(self.jjm_list_data.get("new", []))))
                     ]
                     for idx, (m, val) in enumerate(metrics, 2):
                         ws_jjm.cell(row=idx, column=1, value=m)
                         ws_jjm.cell(row=idx, column=2, value=val)
                     
-                    ws_jjm.cell(row=7, column=1, value="TOTAL SCHEMES").font = Font(bold=True)
-                    ws_jjm.cell(row=7, column=2, value="LIVE SCHEMES").font = Font(bold=True)
-                    ws_jjm.cell(row=7, column=3, value="NOT RECEIVED").font = Font(bold=True)
-                    ws_jjm.cell(row=7, column=4, value="OFF-GRID / MISSING").font = Font(bold=True)
+                    ws_jjm.cell(row=8, column=1, value="TOTAL SCHEMES").font = Font(bold=True)
+                    ws_jjm.cell(row=8, column=2, value="LIVE SCHEMES").font = Font(bold=True)
+                    ws_jjm.cell(row=8, column=3, value="NOT RECEIVED").font = Font(bold=True)
+                    ws_jjm.cell(row=8, column=4, value="OFF-GRID / MISSING").font = Font(bold=True)
+                    ws_jjm.cell(row=8, column=5, value="NEWLY ADDED").font = Font(bold=True)
                     
                     tot_lst = self.jjm_list_data.get("total", [])
                     live_lst = self.jjm_list_data.get("live", [])
                     nr_lst = self.jjm_list_data.get("not_recv", [])
                     lo_lst = self.jjm_list_data.get("leftover", [])
+                    new_lst = self.jjm_list_data.get("new", [])
                     
-                    max_len = max(len(tot_lst), len(live_lst), len(nr_lst), len(lo_lst))
+                    max_len = max(len(tot_lst), len(live_lst), len(nr_lst), len(lo_lst), len(new_lst))
                     for r in range(max_len):
                         t_val = tot_lst[r] if r < len(tot_lst) else ""
                         li_val = live_lst[r] if r < len(live_lst) else ""
                         nr_val = nr_lst[r] if r < len(nr_lst) else ""
                         lo_val = lo_lst[r] if r < len(lo_lst) else ""
+                        new_val = new_lst[r] if r < len(new_lst) else ""
                         
-                        ws_jjm.cell(row=8+r, column=1, value=t_val)
-                        ws_jjm.cell(row=8+r, column=2, value=li_val)
-                        ws_jjm.cell(row=8+r, column=3, value=nr_val)
-                        ws_jjm.cell(row=8+r, column=4, value=lo_val)
+                        ws_jjm.cell(row=9+r, column=1, value=t_val)
+                        ws_jjm.cell(row=9+r, column=2, value=li_val)
+                        ws_jjm.cell(row=9+r, column=3, value=nr_val)
+                        ws_jjm.cell(row=9+r, column=4, value=lo_val)
+                        ws_jjm.cell(row=9+r, column=5, value=new_val)
                 except Exception as e_jjm:
                     self.safe_log_update(f"⚠️ Could not write JJM Portal sheet: {e_jjm}")
 
@@ -1885,6 +1933,15 @@ del "%~f0"
                 self.safe_log_update("[WA] Browser opened. Scan QR if needed. Waiting 20s for interface...")
                 time.sleep(20)
 
+                # Set up the clipboard with the message payload
+                try:
+                    self.clipboard_clear()
+                    self.clipboard_append(self.last_analysis_msg)
+                    self.update() # Sync with OS clipboard
+                    self.safe_log_update("[WA] Report preview copied to system clipboard successfully.")
+                except Exception as e_clip:
+                    self.safe_log_update(f"⚠️ Clipboard setup error: {e_clip}")
+
                 for contact in self.contacts:
                     name  = contact.get('name', '')
                     phone = contact.get('phone', '')
@@ -1892,7 +1949,39 @@ del "%~f0"
                     try:
                         # Always use direct URL — 100% reliable since all contacts have a phone
                         driver.get(f"https://web.whatsapp.com/send?phone={phone}")
-                        time.sleep(7)
+                        time.sleep(5)
+
+                        # Check for invalid phone number popup/modal
+                        is_invalid = False
+                        try:
+                            modal_xpaths = [
+                                '//div[contains(text(), "invalid") or contains(text(), "shared via url") or contains(text(), "Use WhatsApp on your phone")]',
+                                '//div[contains(@class, "modal")]',
+                                '//span[contains(text(), "invalid") or contains(text(), "shared via url")]'
+                            ]
+                            for mx in modal_xpaths:
+                                el = driver.find_elements(By.XPATH, mx)
+                                if el:
+                                    self.safe_log_update(f"   [WA] Detected invalid number modal/alert for {name}!")
+                                    is_invalid = True
+                                    # Try to dismiss the modal
+                                    for btn_xpath in [
+                                        '//button[.//span[text()="OK"] or .//text()="OK"]',
+                                        '//div[@role="button"][.//span[text()="OK"] or .//text()="OK"]',
+                                        '//button[contains(@class, "btn") or contains(@class, "button")]',
+                                        '//div[@role="button"]'
+                                    ]:
+                                        btn_el = driver.find_elements(By.XPATH, btn_xpath)
+                                        if btn_el:
+                                            btn_el[0].click()
+                                            self.safe_log_update("   [WA] Dismissed invalid number modal.")
+                                            break
+                                    break
+                        except Exception as e_modal:
+                            pass
+
+                        if is_invalid:
+                            continue
 
                         # ── FIND MESSAGE BOX ──
                         msg_box = None
@@ -1903,7 +1992,7 @@ del "%~f0"
                             '//div[contains(@aria-label,"message")][@contenteditable="true"]',
                         ]:
                             try:
-                                msg_box = WebDriverWait(driver, 12).until(EC.element_to_be_clickable((By.XPATH, xpath)))
+                                msg_box = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, xpath)))
                                 break
                             except: continue
 
@@ -1911,19 +2000,31 @@ del "%~f0"
                             self.safe_log_update(f"   ❌ Message box not found. Is {phone} on WhatsApp?")
                             continue
 
-                        msg_box.click(); time.sleep(0.5)
+                        msg_box.click()
+                        time.sleep(0.5)
 
-                        # ── TYPE MESSAGE line by line (Shift+Enter between lines) ──
-                        self.safe_log_update("   [WA] Injecting payload...")
-                        for line in self.last_analysis_msg.split('\n'):
-                            msg_box.send_keys(line)
-                            ActionChains(driver).key_down(Keys.SHIFT).send_keys(Keys.ENTER).key_up(Keys.SHIFT).perform()
-                            time.sleep(0.08)
-
+                        # Paste payload from clipboard
+                        self.safe_log_update("   [WA] Pasting clipboard payload...")
+                        msg_box.send_keys(Keys.CONTROL, 'v')
                         time.sleep(0.5)
                         msg_box.send_keys(Keys.ENTER)
-                        self.safe_log_update(f"   ✅ Sent to {name}!")
-                        time.sleep(3)
+
+                        # Wait for message to be sent (clock icon [data-icon="msg-time"] disappears)
+                        self.safe_log_update("   [WA] Waiting for message to leave browser (clock check)...")
+                        start_wait = time.time()
+                        sent_ok = True
+                        while time.time() - start_wait < 15:
+                            pending = driver.find_elements(By.CSS_SELECTOR, '[data-icon="msg-time"]')
+                            if not pending:
+                                break
+                            time.sleep(0.5)
+                        else:
+                            sent_ok = False
+                            self.safe_log_update("   ⚠️ Warning: Message transmission timed out (still showing clock).")
+                        
+                        if sent_ok:
+                            self.safe_log_update(f"   ✅ Sent to {name}!")
+                        time.sleep(2)
 
                     except Exception as e:
                         self.safe_log_update(f"   ❌ Failed for {name}: {str(e)}")
@@ -2063,19 +2164,20 @@ del "%~f0"
             self.jjm_list_data["live"] = jjm_lists.get("live", ["Data could not be fetched internally."])
             self.jjm_list_data["not_recv"] = jjm_lists.get("not_received", ["Data could not be fetched internally."])
             self.jjm_list_data["leftover"] = jjm_lists.get("leftover", ["Data could not be fetched internally."])
+            self.jjm_list_data["new"] = jjm_lists.get("new", [])
 
         # Update UI Labels
         self.after(0, lambda: self.jjm_total_lbl.configure(text=str(jjm_total)))
         self.after(0, lambda: self.jjm_live_lbl.configure(text=str(jjm_live)))
         self.after(0, lambda: self.jjm_not_recv_lbl.configure(text=str(jjm_not_recv)))
         self.after(0, lambda: self.jjm_leftover_lbl.configure(text=str(jjm_leftover)))
+        self.after(0, lambda: self.jjm_new_lbl.configure(text=str(len(self.jjm_list_data.get("new", [])))))
         
         timestamp = datetime.now().strftime("%b %d - %I:%M %p")
         self.safe_history_update(f"[+] JJM Pulled: {timestamp} | Live: {jjm_live} | Total: {jjm_total}")
         
         # Update export JSON
         try:
-            import json
             export_path = os.path.join(self.watch_folder, "nexus_live_data.json")
             scada_part = {
                 "total": str(len(self.scada_data.get("total", []))),
@@ -2099,6 +2201,8 @@ del "%~f0"
                     "live": str(jjm_live),
                     "not_received": str(jjm_not_recv),
                     "leftover": str(jjm_leftover),
+                    "new_count": str(len(self.jjm_list_data.get("new", []))),
+                    "new_list": self.jjm_list_data.get("new", []),
                     "_lists": self.jjm_list_data
                 },
                 "scada": scada_part,
