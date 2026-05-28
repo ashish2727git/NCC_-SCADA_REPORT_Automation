@@ -48,7 +48,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "14.6"
+CLIENT_VERSION = "14.7"
 PORTAL_URL = "http://122.186.209.30:8068/NCC/Sitapur/Sign-In-Users.php"
 CONFIG_FILE = os.path.join(_BASE_DIR, "nexus_config.json")
 
@@ -1950,16 +1950,6 @@ del "%~f0"
                 driver.get("https://web.whatsapp.com")
                 self.safe_log_update("[WA] Browser opened. Scan QR if needed. Waiting 20s for interface...")
                 time.sleep(20)
-
-                # Set up the clipboard with the message payload
-                try:
-                    self.clipboard_clear()
-                    self.clipboard_append(self.last_analysis_msg)
-                    self.update() # Sync with OS clipboard
-                    self.safe_log_update("[WA] Report preview copied to system clipboard successfully.")
-                except Exception as e_clip:
-                    self.safe_log_update(f"⚠️ Clipboard setup error: {e_clip}")
-
                 for contact in self.contacts:
                     name  = contact.get('name', '')
                     phone = contact.get('phone', '')
@@ -1967,39 +1957,7 @@ del "%~f0"
                     try:
                         # Always use direct URL — 100% reliable since all contacts have a phone
                         driver.get(f"https://web.whatsapp.com/send?phone={phone}")
-                        time.sleep(5)
-
-                        # Check for invalid phone number popup/modal
-                        is_invalid = False
-                        try:
-                            modal_xpaths = [
-                                '//div[contains(text(), "invalid") or contains(text(), "shared via url") or contains(text(), "Use WhatsApp on your phone")]',
-                                '//div[contains(@class, "modal")]',
-                                '//span[contains(text(), "invalid") or contains(text(), "shared via url")]'
-                            ]
-                            for mx in modal_xpaths:
-                                el = driver.find_elements(By.XPATH, mx)
-                                if el:
-                                    self.safe_log_update(f"   [WA] Detected invalid number modal/alert for {name}!")
-                                    is_invalid = True
-                                    # Try to dismiss the modal
-                                    for btn_xpath in [
-                                        '//button[.//span[text()="OK"] or .//text()="OK"]',
-                                        '//div[@role="button"][.//span[text()="OK"] or .//text()="OK"]',
-                                        '//button[contains(@class, "btn") or contains(@class, "button")]',
-                                        '//div[@role="button"]'
-                                    ]:
-                                        btn_el = driver.find_elements(By.XPATH, btn_xpath)
-                                        if btn_el:
-                                            btn_el[0].click()
-                                            self.safe_log_update("   [WA] Dismissed invalid number modal.")
-                                            break
-                                    break
-                        except Exception as e_modal:
-                            pass
-
-                        if is_invalid:
-                            continue
+                        time.sleep(7)
 
                         # ── FIND MESSAGE BOX ──
                         msg_box = None
@@ -2010,7 +1968,7 @@ del "%~f0"
                             '//div[contains(@aria-label,"message")][@contenteditable="true"]',
                         ]:
                             try:
-                                msg_box = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, xpath)))
+                                msg_box = WebDriverWait(driver, 12).until(EC.element_to_be_clickable((By.XPATH, xpath)))
                                 break
                             except: continue
 
@@ -2021,28 +1979,17 @@ del "%~f0"
                         msg_box.click()
                         time.sleep(0.5)
 
-                        # Paste payload from clipboard
-                        self.safe_log_update("   [WA] Pasting clipboard payload...")
-                        msg_box.send_keys(Keys.CONTROL, 'v')
+                        # ── TYPE MESSAGE line by line (Shift+Enter between lines) ──
+                        self.safe_log_update("   [WA] Injecting payload...")
+                        for line in self.last_analysis_msg.split('\n'):
+                            msg_box.send_keys(line)
+                            ActionChains(driver).key_down(Keys.SHIFT).send_keys(Keys.ENTER).key_up(Keys.SHIFT).perform()
+                            time.sleep(0.08)
+
                         time.sleep(0.5)
                         msg_box.send_keys(Keys.ENTER)
-
-                        # Wait for message to be sent (clock icon [data-icon="msg-time"] disappears)
-                        self.safe_log_update("   [WA] Waiting for message to leave browser (clock check)...")
-                        start_wait = time.time()
-                        sent_ok = True
-                        while time.time() - start_wait < 15:
-                            pending = driver.find_elements(By.CSS_SELECTOR, '[data-icon="msg-time"]')
-                            if not pending:
-                                break
-                            time.sleep(0.5)
-                        else:
-                            sent_ok = False
-                            self.safe_log_update("   ⚠️ Warning: Message transmission timed out (still showing clock).")
-                        
-                        if sent_ok:
-                            self.safe_log_update(f"   ✅ Sent to {name}!")
-                        time.sleep(2)
+                        self.safe_log_update(f"   ✅ Sent to {name}!")
+                        time.sleep(10)
 
                     except Exception as e:
                         self.safe_log_update(f"   ❌ Failed for {name}: {str(e)}")
