@@ -1423,12 +1423,13 @@ del "%~f0"
             
         popup = ctk.CTkToplevel(self)
         popup.title(title)
-        popup.geometry("680x600")
+        popup.geometry("720x600")
         popup.attributes("-topmost", True)
+        popup.configure(fg_color="#0f172a")
         
         # Center the popup relative to main window
         popup.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() // 2) - (680 // 2)
+        x = self.winfo_x() + (self.winfo_width() // 2) - (720 // 2)
         y = self.winfo_y() + (self.winfo_height() // 2) - (600 // 2)
         popup.geometry(f"+{x}+{y}")
         
@@ -1437,18 +1438,67 @@ del "%~f0"
         
         # Search Box
         search_var = tk.StringVar()
-        search_entry = ctk.CTkEntry(popup, placeholder_text="🔍 Search schemes...", height=35, fg_color="#f3f4f6", border_color=CLR_BORDER, textvariable=search_var)
+        search_entry = ctk.CTkEntry(popup, placeholder_text="🔍 Search schemes...", height=35, fg_color="#f3f4f6", border_color=CLR_BORDER, text_color=CLR_TEXT, placeholder_text_color="#64748b", textvariable=search_var)
         search_entry.pack(fill="x", padx=15, pady=(0, 10))
         
-        textbox = ctk.CTkTextbox(popup, font=("Consolas", 12), fg_color="#f3f4f6", text_color=CLR_TEXT)
-        textbox.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        # Style configuration for a premium, Excel-like dark table
+        import tkinter.ttk as ttk
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        style.configure("Nexus.Treeview",
+                        background="#1e293b",
+                        foreground="#f1f5f9",
+                        rowheight=28,
+                        fieldbackground="#1e293b",
+                        gridcolor="#334155",
+                        font=("Segoe UI", 10))
+                        
+        style.map("Nexus.Treeview",
+                  background=[('selected', '#0ea5e9')],
+                  foreground=[('selected', '#0f172a')])
+                  
+        style.configure("Nexus.Treeview.Heading",
+                        background="#0f172a",
+                        foreground="#0ea5e9",
+                        font=("Segoe UI", 10, "bold"),
+                        borderwidth=1,
+                        bordercolor="#334155")
+                        
+        # Create a container frame for Treeview & Scrollbar
+        table_frame = ctk.CTkFrame(popup, fg_color="transparent")
+        table_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        
+        # Columns definition
+        cols = ("sr_no", "name", "timestamp")
+        tree = ttk.Treeview(table_frame, columns=cols, show="headings", style="Nexus.Treeview")
+        
+        # Define headings
+        tree.heading("sr_no", text="Sr. No.")
+        tree.heading("name", text="Scheme / Gram Panchayat Name")
+        tree.heading("timestamp", text="Last Data Receive Date")
+        
+        # Define columns layout
+        tree.column("sr_no", width=60, minwidth=60, anchor="center")
+        tree.column("name", width=420, minwidth=300, anchor="w")
+        tree.column("timestamp", width=200, minwidth=150, anchor="w")
+        
+        # Scrollbars
+        v_scrollbar = ctk.CTkScrollbar(table_frame, orientation="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=v_scrollbar.set)
+        
+        tree.pack(side="left", fill="both", expand=True)
+        v_scrollbar.pack(side="right", fill="y")
         
         def update_list(*args):
             query = search_var.get().strip().lower()
             filtered = [it for it in items if query in str(it).lower()]
             
-            formatted_lines = []
-            for it in filtered:
+            # Clear old rows
+            tree.delete(*tree.get_children())
+            
+            # Insert new rows
+            for idx, it in enumerate(filtered, 1):
                 name_str = str(it)
                 time_str = ""
                 if hasattr(self, "jjm_gp_times") and name_str in self.jjm_gp_times:
@@ -1456,15 +1506,11 @@ del "%~f0"
                 elif hasattr(self, "scada_gp_times") and name_str in self.scada_gp_times:
                     time_str = self.scada_gp_times[name_str]
                 
-                if time_str:
-                    formatted_lines.append(f"{name_str:<45} | {time_str}")
-                else:
-                    formatted_lines.append(name_str)
+                if not time_str or time_str == "N/A":
+                    time_str = "No recent data"
                     
-            textbox.configure(state="normal")
-            textbox.delete("1.0", "end")
-            textbox.insert("end", "\n".join(formatted_lines))
-            textbox.configure(state="disabled")
+                tree.insert("", "end", values=(idx, name_str, time_str))
+                
             header_lbl.configure(text=f"{title} (Filtered: {len(filtered)} / Total: {len(items)})")
 
         search_var.trace_add("write", update_list)
