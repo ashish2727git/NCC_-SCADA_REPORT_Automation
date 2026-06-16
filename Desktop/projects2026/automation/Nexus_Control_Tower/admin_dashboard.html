@@ -255,6 +255,7 @@
               <tr>
                 <th>Key</th>
                 <th>Client</th>
+                <th>Version</th>
                 <th>License Status</th>
                 <th>Hardware ID</th>
                 <th>Live Status</th>
@@ -262,7 +263,7 @@
               </tr>
             </thead>
             <tbody id="license-table-body">
-              <tr><td colspan="5" class="empty">Loading...</td></tr>
+              <tr><td colspan="7" class="empty">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -461,11 +462,11 @@ function copyKey(){
 // ── Licenses ──────────────────────────────────────────────
 async function loadLicenses(){
   const tbody = document.getElementById('license-table-body');
-  tbody.innerHTML='<tr><td colspan="6" class="empty">Loading...</td></tr>';
+  tbody.innerHTML='<tr><td colspan="7" class="empty">Loading...</td></tr>';
   try{
     const r = await fetch('/api/admin/list_licenses');
     const data = await r.json();
-    if(!data.length){ tbody.innerHTML='<tr><td colspan="6" class="empty">No licenses yet</td></tr>'; return; }
+    if(!data.length){ tbody.innerHTML='<tr><td colspan="7" class="empty">No licenses yet</td></tr>'; return; }
     tbody.innerHTML = data.map(l=>{
       const now = Math.floor(Date.now() / 1000);
       const isOnline = l.is_active && l.hwid && (now - l.last_seen <= 40);
@@ -474,6 +475,7 @@ async function loadLicenses(){
       <tr>
         <td class="mono">${l.key}</td>
         <td>${l.client_name}</td>
+        <td><span class="badge badge-unbound" style="background:var(--surface);border:1px solid var(--border)">v${l.version||'unknown'}</span></td>
         <td><span class="badge ${l.is_active?'badge-active':'badge-revoked'}">${l.is_active?'Active':'Revoked'}</span></td>
         <td><span class="badge badge-unbound">${l.hwid||'Unbound'}</span></td>
         <td>${liveStatus}</td>
@@ -481,7 +483,7 @@ async function loadLicenses(){
       </tr>`;
     }).join('');
   } catch(e){
-    tbody.innerHTML='<tr><td colspan="6" class="empty">Cannot reach server</td></tr>';
+    tbody.innerHTML='<tr><td colspan="7" class="empty">Cannot reach server</td></tr>';
   }
 }
 
@@ -523,7 +525,7 @@ async function loadClients(){
     sel.innerHTML = bound.map(l=>{
       const isOnline = now - l.last_seen <= 40;
       const statusText = isOnline ? "🟢 Online" : "🔴 Offline";
-      return `<option value="${l.hwid}">${l.client_name} (${statusText} - ${l.hwid.substring(0,6)}...)</option>`;
+      return `<option value="${l.hwid}">${l.client_name} (${statusText} | v${l.version || 'unknown'} - ${l.hwid.substring(0,6)}...)</option>`;
     }).join('');
   } catch(e){ sel.innerHTML='<option>Cannot reach server</option>'; }
 }

@@ -141,7 +141,7 @@ class NexusSyncPro(ctk.CTk):
         import requests
         try:
             hwid = self._get_hwid()
-            resp = requests.post("http://devash.in/api/verify_license", json={"key": key, "hwid": hwid}, timeout=5)
+            resp = requests.post("http://devash.in/api/verify_license", json={"key": key, "hwid": hwid, "version": CLIENT_VERSION}, timeout=5)
             if resp.status_code == 200:
                 return True
             else:
@@ -303,6 +303,18 @@ class NexusSyncPro(ctk.CTk):
         
         self.setup_ui()
         
+        # Clean up old executable backup from recent updates
+        try:
+            current_exe_path = sys.executable if getattr(sys, 'frozen', False) else None
+            if current_exe_path:
+                old_exe_path = current_exe_path + ".old"
+                if os.path.exists(old_exe_path):
+                    os.remove(old_exe_path)
+                    self.safe_log_update("[OTA] Cleaned up previous version update backup.")
+                    self.after(2000, lambda: self.safe_log_update(f"[OTA] 🎉 System successfully upgraded to v{CLIENT_VERSION}!"))
+        except Exception:
+            pass
+
         os.makedirs(CHROME_DATA_DIR, exist_ok=True)
         self.today_str = datetime.today().strftime("%d-%m-%Y")
 
@@ -318,7 +330,7 @@ class NexusSyncPro(ctk.CTk):
         # ── INITIALIZE WORKSPACE (Auto-selects last location) ──
         self.watch_folder = self._select_workspace_folder()
 
-        self.safe_log_update("[SYS] System Architecture v14.0 (Production Ready) Initialized.")
+        self.safe_log_update(f"[SYS] System Architecture v{CLIENT_VERSION} (Production Ready) Initialized.")
         self.safe_log_update(f"[SYS] Daily data directory mapped: {self.watch_folder}")
         if os.listdir(self.watch_folder):
             self.safe_log_update(f"[SYS] Existing files detected in today's folder — reusing workspace.")
@@ -333,7 +345,7 @@ class NexusSyncPro(ctk.CTk):
 
     def _check_whats_new(self):
         """Show What's New popup once per version after an update."""
-        CURRENT_VER = "14.0"
+        CURRENT_VER = CLIENT_VERSION
         ver_file = os.path.join(_BASE_DIR, ".last_seen_version")
         try:
             if os.path.exists(ver_file):
@@ -377,16 +389,16 @@ class NexusSyncPro(ctk.CTk):
         scroll.pack(fill="both", expand=True, padx=20, pady=16)
 
         features = [
-            ("📡", "Telegram Remote Control",
-             "Trigger Pull Data or Broadcast reports on any field machine directly from your phone via Telegram — without being in the office."),
-            ("🔐", "OTP Command Verification",
-             "Every remote Telegram command now requires a unique 6-digit One-Time Password that expires in 60 seconds, preventing accidental or unauthorized actions."),
-            ("🖥", "Admin Desktop Control Panel",
-             "New Nexus Admin Control app lets you start/stop the cloud server, generate/revoke licenses, and monitor live server logs — all without opening a browser."),
-            ("🛡", "Hardware-Bound Licensing",
-             "Each license key now permanently locks to your specific PC hardware. The same key cannot be used on a second device."),
-            ("📂", "Secure AppData Storage",
-             "All configuration files and credentials are now stored invisibly in your system's AppData folder instead of visible Downloads locations."),
+            ("🔄", "Interactive Update Manager",
+             "Over-The-Air updates now feature a real-time download progress bar and installation status display."),
+            ("🔌", "Remote Force Updates",
+             "Administrators can now remotely trigger immediate updates and restarts directly from the Control Tower admin dashboard."),
+            ("🌐", "WhatsApp Debug Chrome Profile",
+             "Open the client's dedicated WhatsApp Chrome profile using a sidebar button for troubleshooting and manual re-login."),
+            ("📡", "Control Tower Version Reporting",
+             "Connected clients now report their active running version, displayed on the Control Tower admin panel."),
+            ("🔒", "Hardware-Bound Licensing",
+             "Each license key now permanently locks to your specific PC hardware, preventing unauthorized duplicate activations."),
         ]
 
         for icon, title, desc in features:
@@ -497,9 +509,8 @@ class NexusSyncPro(ctk.CTk):
 
         if has_update:
             def _start_download():
-                dl_btn.configure(state="disabled", text="⏳ Downloading...")
-                threading.Thread(target=self.check_for_updates, daemon=True).start()
-                popup.after(2000, popup.destroy)
+                popup.destroy()
+                self.show_download_progress_popup(latest_ver)
             dl_btn = ctk.CTkButton(btn_frame, text="⬇ Download & Install",
                 font=("Segoe UI", 13, "bold"), height=44, fg_color="#3b82f6",
                 hover_color="#2563eb", command=_start_download)
@@ -654,7 +665,7 @@ class NexusSyncPro(ctk.CTk):
                 env=env)
             os._exit(0)
 
-    def check_for_updates(self):
+    def check_for_updates(self, progress_callback=None):
         try:
             self.safe_log_update("[SYS] Checking Control Tower for updates...")
             resp = requests.get("http://devash.in/api/update_check", timeout=5)
@@ -664,32 +675,178 @@ class NexusSyncPro(ctk.CTk):
                 current_ver = CLIENT_VERSION
 
                 if float(latest_ver) > float(current_ver):
-                    self.safe_log_update(f"[OTA] Update available: v{latest_ver}. Downloading silently...")
+                    self.safe_log_update(f"[OTA] Update available: v{latest_ver}. Initiating download...")
                     dl_url = f"http://devash.in{data.get('download_url')}"
-                    dl_resp = requests.get(dl_url, timeout=60)
-
-                    # Validate: must be HTTP 200
-                    if dl_resp.status_code != 200:
-                        self.safe_log_update(f"[OTA] ⚠️ Update download failed (HTTP {dl_resp.status_code}). Will retry next cycle.")
+                    
+                    # Stream the download
+                    response = requests.get(dl_url, stream=True, timeout=60)
+                    if response.status_code != 200:
+                        self.safe_log_update(f"[OTA] ⚠️ Update download failed (HTTP {response.status_code}).")
+                        if progress_callback:
+                            progress_callback("error", f"HTTP {response.status_code}")
                         return
 
-                    exe_data = dl_resp.content
-
-                    # Validate: must start with Windows PE 'MZ' magic bytes
-                    if len(exe_data) < 2 or exe_data[:2] != b'MZ':
-                        self.safe_log_update("[OTA] ⚠️ Downloaded file is not a valid executable. Skipping update.")
-                        return
-
+                    total_size = int(response.headers.get('content-length', 0))
                     new_file = os.path.join(_BASE_DIR, "NexusSyncPro_Update.exe")
+                    downloaded_size = 0
+                    chunk_size = 65536 # 64KB
+                    
                     with open(new_file, "wb") as f:
-                        f.write(exe_data)
-                    self._update_pending_path = new_file
-                    self.safe_log_update(f"[OTA] Update downloaded ({len(exe_data)//1024//1024} MB). Applies at 7:00 PM shutdown (or restart now).")
-                    self.after(0, self._show_update_banner)
+                        for chunk in response.iter_content(chunk_size=chunk_size):
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded_size += len(chunk)
+                            if progress_callback:
+                                progress_callback("progress", (downloaded_size, total_size))
+                    
+                    # Validate: check PE MZ headers
+                    if os.path.exists(new_file) and os.path.getsize(new_file) > 1024:
+                        with open(new_file, "rb") as f_check:
+                            magic = f_check.read(2)
+                        if magic != b'MZ':
+                            self.safe_log_update("[OTA] ⚠️ Downloaded file is not a valid Windows executable. Skipping.")
+                            try:
+                                os.remove(new_file)
+                            except: pass
+                            if progress_callback:
+                                progress_callback("error", "Invalid PE executable magic bytes")
+                            return
+                        
+                        self._update_pending_path = new_file
+                        self.safe_log_update(f"[OTA] Update v{latest_ver} downloaded successfully ({downloaded_size//1024//1024} MB). Ready to install.")
+                        self.after(0, self._show_update_banner)
+                        if progress_callback:
+                            progress_callback("complete", downloaded_size)
+                    else:
+                        if progress_callback:
+                            progress_callback("error", "Downloaded file empty or truncated")
                 else:
                     self.safe_log_update("[SYS] Application is up to date.")
-        except Exception:
-            self.safe_log_update("[SYS] Control Tower offline. Running locally.")
+                    if progress_callback:
+                        progress_callback("up_to_date", None)
+            else:
+                self.safe_log_update("[SYS] Control Tower returned non-200. Running locally.")
+                if progress_callback:
+                    progress_callback("error", "Control Tower update response error")
+        except Exception as e:
+            self.safe_log_update(f"[SYS] Update error: {e}")
+            if progress_callback:
+                progress_callback("error", str(e))
+
+    def show_download_progress_popup(self, latest_ver):
+        """Show a premium download progress meter and installation status dialog."""
+        popup = ctk.CTkToplevel(self)
+        popup.title("Downloading Software Update")
+        popup.attributes("-topmost", True)
+        popup.grab_set()
+        popup.configure(fg_color="#0f172a")
+        
+        pw, ph = 460, 360
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        popup.geometry(f"{pw}x{ph}+{(sw-pw)//2}+{(sh-ph)//2}")
+        popup.resizable(False, False)
+        
+        # Header Frame
+        header = ctk.CTkFrame(popup, fg_color="#1e293b", corner_radius=0)
+        header.pack(fill="x")
+        
+        ctk.CTkLabel(header, text="⬇️", font=("Segoe UI", 36)).pack(pady=(16, 0))
+        title_lbl = ctk.CTkLabel(header, text=f"Downloading Update v{latest_ver}", font=("Segoe UI", 18, "bold"), text_color="#60a5fa")
+        title_lbl.pack(pady=(4, 2))
+        subtitle_lbl = ctk.CTkLabel(header, text="Please wait while the update package is retrieved...", font=("Segoe UI", 11), text_color="#94a3b8")
+        subtitle_lbl.pack(pady=(0, 14))
+        
+        # Progress Bar and Info
+        info_frame = ctk.CTkFrame(popup, fg_color="transparent")
+        info_frame.pack(fill="x", padx=30, pady=20)
+        
+        progress_bar = ctk.CTkProgressBar(info_frame, fg_color="#1e293b", progress_color="#0ea5e9", height=12)
+        progress_bar.set(0.0)
+        progress_bar.pack(fill="x", pady=(0, 6))
+        
+        stats_lbl = ctk.CTkLabel(info_frame, text="Starting download...", font=("Segoe UI", 12), text_color="#cbd5e1")
+        stats_lbl.pack(anchor="w")
+        
+        status_lbl = ctk.CTkLabel(info_frame, text="Status: Connecting to Control Tower...", font=("Segoe UI", 11, "italic"), text_color="#94a3b8")
+        status_lbl.pack(anchor="w", pady=(8, 0))
+        
+        # Bottom controls frame
+        ctrl_frame = ctk.CTkFrame(popup, fg_color="transparent")
+        ctrl_frame.pack(fill="x", side="bottom", padx=30, pady=20)
+        
+        action_btn = ctk.CTkButton(ctrl_frame, text="Later (Background)", font=("Segoe UI", 12, "bold"), height=38,
+                                   fg_color="transparent", border_width=1, border_color=CLR_BORDER, text_color=CLR_DIM,
+                                   command=popup.destroy)
+        action_btn.pack(fill="x")
+        
+        def progress_callback(status, detail):
+            if status == "progress":
+                downloaded, total = detail
+                percent = (downloaded / total) if total > 0 else 0
+                mb_downloaded = downloaded / (1024 * 1024)
+                mb_total = total / (1024 * 1024)
+                
+                self.after(0, lambda: progress_bar.set(percent))
+                self.after(0, lambda: stats_lbl.configure(text=f"Downloaded: {mb_downloaded:.1f} MB / {mb_total:.1f} MB ({percent*100:.0f}%)"))
+                self.after(0, lambda: status_lbl.configure(text="Status: Downloading files..."))
+            
+            elif status == "complete":
+                mb_downloaded = detail / (1024 * 1024)
+                self.after(0, lambda: progress_bar.set(1.0))
+                self.after(0, lambda: progress_bar.configure(progress_color="#10b981"))
+                self.after(0, lambda: title_lbl.configure(text="Update Ready to Install!", text_color="#4ade80"))
+                self.after(0, lambda: subtitle_lbl.configure(text=f"v{latest_ver} downloaded and verified successfully."))
+                self.after(0, lambda: stats_lbl.configure(text=f"Verification complete: {mb_downloaded:.1f} MB received."))
+                self.after(0, lambda: status_lbl.configure(text="Status: Ready to install. Application restart required."))
+                
+                def trigger_restart():
+                    popup.destroy()
+                    self._restart_app()
+                
+                self.after(0, lambda: action_btn.configure(
+                    text="🔄 Restart & Install Now",
+                    fg_color="#10b981",
+                    hover_color="#059669",
+                    text_color="#ffffff",
+                    border_width=0,
+                    command=trigger_restart
+                ))
+            
+            elif status == "error":
+                self.after(0, lambda: title_lbl.configure(text="Download Failed", text_color="#ef4444"))
+                self.after(0, lambda: subtitle_lbl.configure(text="An error occurred during update download."))
+                self.after(0, lambda: status_lbl.configure(text=f"Error: {detail}"))
+                self.after(0, lambda: action_btn.configure(text="Close", command=popup.destroy))
+            
+            elif status == "up_to_date":
+                self.after(0, lambda: title_lbl.configure(text="Already Up to Date", text_color="#4ade80"))
+                self.after(0, lambda: subtitle_lbl.configure(text="You are already running the latest version."))
+                self.after(0, lambda: status_lbl.configure(text="Status: No action required."))
+                self.after(0, lambda: action_btn.configure(text="Close", command=popup.destroy))
+        
+        threading.Thread(target=self.check_for_updates, args=(progress_callback,), daemon=True).start()
+
+    def trigger_force_update(self):
+        """Called when FORCE_UPDATE command is received. Resolves latest version and shows progress UI."""
+        def run_force():
+            try:
+                resp = requests.get("http://devash.in/api/update_check", timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    latest_ver = data.get("latest_version", "0.0")
+                    current_ver = CLIENT_VERSION
+                    if float(latest_ver) > float(current_ver):
+                        self.safe_log_update(f"[REMOTE] Update v{latest_ver} available. Opening progress UI...")
+                        self.after(0, lambda: self.show_download_progress_popup(latest_ver))
+                    else:
+                        self.safe_log_update("[REMOTE] Force update received, but app is already at the latest version.")
+                else:
+                    self.safe_log_update("[REMOTE] Force update failed: Control Tower update check failed.")
+            except Exception as e:
+                self.safe_log_update(f"[REMOTE] Force update check failed: {e}")
+        
+        threading.Thread(target=run_force, daemon=True).start()
 
     def _register_startup(self):
         """Register the app in the Windows Registry (Boot) AND Task Scheduler (8 AM Daily)."""
@@ -722,7 +879,7 @@ class NexusSyncPro(ctk.CTk):
         hwid = self._get_hwid()
         while True:
             try:
-                r = requests.get(f"http://devash.in/api/poll_commands?hwid={hwid}", timeout=5)
+                r = requests.get(f"http://devash.in/api/poll_commands?hwid={hwid}&version={CLIENT_VERSION}", timeout=5)
                 if r.status_code == 200:
                     commands = r.json()
                     for cmd in commands:
@@ -737,18 +894,8 @@ class NexusSyncPro(ctk.CTk):
                         elif c_text == "BROADCAST":
                             self.trigger_manual_send()
                         elif c_text == "FORCE_UPDATE":
-                            self.safe_log_update("[REMOTE] Force Update command received. Running update sequence...")
-                            def do_force_update():
-                                try:
-                                    self.check_for_updates()
-                                    if getattr(self, '_update_pending_path', None):
-                                        self.safe_log_update("[REMOTE] Update ready. Triggering restart...")
-                                        self._restart_app()
-                                    else:
-                                        self.safe_log_update("[REMOTE] Already up to date or update check returned no package.")
-                                except Exception as e_fu:
-                                    self.safe_log_update(f"[REMOTE] ❌ Force Update failed: {e_fu}")
-                            threading.Thread(target=do_force_update, daemon=True).start()
+                            self.safe_log_update("[REMOTE] Force Update command received. Triggering update manager UI...")
+                            self.trigger_force_update()
                             
                         # Acknowledge execution so it's removed from queue
                         requests.post("http://devash.in/api/ack_command", json={"command_id": c_id}, timeout=5)
@@ -832,7 +979,7 @@ del "%~f0"
         self.sidebar_scroll.pack(fill="both", expand=True)
         
         ctk.CTkLabel(self.sidebar_scroll, text="NEXUS SYNC", font=("Segoe UI", 24, "bold"), text_color=CLR_CYAN).pack(pady=(30, 5))
-        ctk.CTkLabel(self.sidebar_scroll, text="PRODUCTION BUILD", font=("Segoe UI", 9, "bold"), text_color=CLR_GOLD).pack(pady=(0, 20))
+        ctk.CTkLabel(self.sidebar_scroll, text=f"PRODUCTION BUILD v{CLIENT_VERSION}", font=("Segoe UI", 9, "bold"), text_color=CLR_GOLD).pack(pady=(0, 20))
 
         ctrl_frame = ctk.CTkFrame(self.sidebar_scroll, fg_color="transparent")
         ctrl_frame.pack(fill="x", padx=20, pady=10)
@@ -935,7 +1082,7 @@ del "%~f0"
 
         # ── DEVELOPER CREDIT ──
         ctk.CTkLabel(self.sidebar, text="DEVELOPED BY: ASHISH KUMAR", font=("Segoe UI", 9, "italic"), text_color=CLR_DIM).pack(side="bottom", pady=(10, 4))
-        ctk.CTkLabel(self.sidebar, text="v14.2 • Enterprise Suite", font=("Segoe UI", 9), text_color=CLR_DIM).pack(side="bottom", pady=(0, 0))
+        ctk.CTkLabel(self.sidebar, text=f"v{CLIENT_VERSION} • Enterprise Suite", font=("Segoe UI", 9), text_color=CLR_DIM).pack(side="bottom", pady=(0, 0))
 
         # --- MAIN TABVIEW ---
         self.main_tabs = ctk.CTkTabview(self, fg_color="transparent")

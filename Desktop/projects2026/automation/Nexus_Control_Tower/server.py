@@ -85,6 +85,12 @@ def init_db():
         c.execute("ALTER TABLE licenses ADD COLUMN last_seen INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+
+    # Safe migration: Add version column if missing
+    try:
+        c.execute("ALTER TABLE licenses ADD COLUMN version TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
         
     # Table for versions
     c.execute('''CREATE TABLE IF NOT EXISTS versions (
@@ -139,6 +145,7 @@ class RestoreBackupRequest(BaseModel):
 class LicenseCheck(BaseModel):
     key: str
     hwid: str
+    version: str = ""
 
 class AdminLicense(BaseModel):
     key: str
@@ -211,7 +218,7 @@ def admin_revoke_license(data: RevokeRequest):
 def admin_list_licenses():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("SELECT key, client_name, hwid, is_active, last_seen FROM licenses")
+    c.execute("SELECT key, client_name, hwid, is_active, last_seen, version FROM licenses")
     rows = c.fetchall()
     conn.close()
     return [
@@ -220,7 +227,8 @@ def admin_list_licenses():
             "client_name": r[1],
             "hwid": r[2],
             "is_active": bool(r[3]),
-            "last_seen": r[4] or 0
+            "last_seen": r[4] or 0,
+            "version": r[5] or ""
         }
         for r in rows
     ]
@@ -262,11 +270,11 @@ def issue_remote_command_all(data: CommandIssueAll):
     return {"status": "success", "message": f"Command '{data.command}' queued for {len(rows)} active clients."}
 
 @app.get("/api/poll_commands")
-def poll_commands(hwid: str):
+def poll_commands(hwid: str, version: str = ""):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    # Update last_seen for client heartbeat
-    c.execute("UPDATE licenses SET last_seen=? WHERE hwid=?", (int(time.time()), hwid))
+    # Update last_seen and version for client heartbeat
+    c.execute("UPDATE licenses SET last_seen=?, version=? WHERE hwid=?", (int(time.time()), version, hwid))
     c.execute("SELECT id, command FROM remote_commands WHERE hwid=? AND is_executed=0 ORDER BY id ASC", (hwid,))
     rows = c.fetchall()
     conn.commit()
@@ -301,7 +309,7 @@ def verify_license(data: LicenseCheck):
     # Update last_seen since the client verified the license at startup
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("UPDATE licenses SET last_seen=? WHERE key=?", (int(time.time()), data.key))
+    c.execute("UPDATE licenses SET last_seen=?, version=? WHERE key=?", (int(time.time()), data.version, data.key))
     
     # If hwid in DB is empty, this is the first activation, bind it
     if not saved_hwid:
@@ -387,8 +395,8 @@ def check_update():
     
     # Fallback to hardcoded version for backward compatibility or safety
     return {
-        "latest_version": "14.2",
-        "download_url": "/download/latest.exe"
+        "latest_version": "14.8",
+        "download_url": "/download/Ashish_Kumar_NexusSyncPro_v14.8.exe"
     }
 
 @app.post("/api/admin/publish_version")
