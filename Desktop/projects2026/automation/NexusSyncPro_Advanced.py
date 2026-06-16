@@ -1423,12 +1423,12 @@ del "%~f0"
             
         popup = ctk.CTkToplevel(self)
         popup.title(title)
-        popup.geometry("450x600")
+        popup.geometry("680x600")
         popup.attributes("-topmost", True)
         
         # Center the popup relative to main window
         popup.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() // 2) - (450 // 2)
+        x = self.winfo_x() + (self.winfo_width() // 2) - (680 // 2)
         y = self.winfo_y() + (self.winfo_height() // 2) - (600 // 2)
         popup.geometry(f"+{x}+{y}")
         
@@ -1446,17 +1446,31 @@ del "%~f0"
         def update_list(*args):
             query = search_var.get().strip().lower()
             filtered = [it for it in items if query in str(it).lower()]
+            
+            formatted_lines = []
+            for it in filtered:
+                name_str = str(it)
+                time_str = ""
+                if hasattr(self, "jjm_gp_times") and name_str in self.jjm_gp_times:
+                    time_str = self.jjm_gp_times[name_str]
+                elif hasattr(self, "scada_gp_times") and name_str in self.scada_gp_times:
+                    time_str = self.scada_gp_times[name_str]
+                
+                if time_str:
+                    formatted_lines.append(f"{name_str:<45} | {time_str}")
+                else:
+                    formatted_lines.append(name_str)
+                    
             textbox.configure(state="normal")
             textbox.delete("1.0", "end")
-            textbox.insert("end", "\n".join(filtered))
+            textbox.insert("end", "\n".join(formatted_lines))
             textbox.configure(state="disabled")
             header_lbl.configure(text=f"{title} (Filtered: {len(filtered)} / Total: {len(items)})")
 
         search_var.trace_add("write", update_list)
         
         # Initial fill
-        textbox.insert("end", "\n".join(items))
-        textbox.configure(state="disabled")
+        update_list()
         search_entry.focus()
 
     # --- UI Thread Safety Wrappers ---
@@ -1565,6 +1579,9 @@ del "%~f0"
                             live_val = texts[agency_idx + 10]
                             not_recv_val = texts[agency_idx + 11]
                             
+                            if not hasattr(self, "jjm_gp_times"):
+                                self.jjm_gp_times = {}
+
                             def fetch_list(col_idx):
                                 try:
                                     a_tag = cells[col_idx].find('a')
@@ -1577,8 +1594,11 @@ del "%~f0"
                                             names = []
                                             for r_ in t[0].find_all('tr')[1:]:
                                                 c_ = [c.text.strip() for c in r_.find_all(['td', 'th'])]
-                                                if len(c_) > 6 and c_[0].isdigit():
-                                                    names.append(c_[6])
+                                                if len(c_) > 9 and c_[0].isdigit():
+                                                    name = c_[6]
+                                                    last_date = c_[9]
+                                                    names.append(name)
+                                                    self.jjm_gp_times[name] = last_date
                                             return sorted(names)
                                 except Exception:
                                     pass
@@ -1806,6 +1826,16 @@ del "%~f0"
             self.safe_report_update(report, preview)
             
             # --- Update UI Labels ---
+            self.scada_gp_times = {}
+            for _, row in df.iterrows():
+                gp_name = str(row[gp_col]).strip()
+                dt_val = row[dt_col]
+                if pd.notna(dt_val):
+                    dt_str = dt_val.strftime("%Y-%m-%d %H:%M")
+                else:
+                    dt_str = "N/A"
+                self.scada_gp_times[gp_name] = dt_str
+
             self.scada_data["total"] = sorted(df[gp_col].dropna().astype(str).tolist())
             self.scada_data["synced"] = sorted(synced[gp_col].dropna().astype(str).tolist())
             self.scada_data["not_synced"] = sorted(not_synced[gp_col].dropna().astype(str).tolist())
@@ -2118,6 +2148,46 @@ del "%~f0"
     # 📱 WHATSAPP ENGINE (RESTORED MANUAL METHOD)
     # ==================================================
     
+    def _wait_for_message_delivery(self, driver, timeout=15):
+        """Waits for the last message to be delivered (status changing to sent/delivered/read)."""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                status_elements = driver.find_elements(By.CSS_SELECTOR, "span[aria-label], span[data-icon]")
+                if status_elements:
+                    last_el = status_elements[-1]
+                    label = last_el.get_attribute("aria-label") or ""
+                    icon = last_el.get_attribute("data-icon") or ""
+                    
+                    label_l = label.lower()
+                    icon_l = icon.lower()
+                    
+                    if any(x in label_l for x in ["sent", "delivered", "read"]) or any(x in icon_l for x in ["check", "dblcheck"]):
+                        return "sent"
+                    elif "alert" in label_l or "failed" in label_l or "status-alert" in icon_l:
+                        return "failed"
+            except Exception:
+                pass
+            time.sleep(1)
+        return "pending"
+
+    def _is_logged_out(self, driver):
+        """Checks if the WhatsApp Web page shows the QR code scan screen."""
+        try:
+            qr_canvas = driver.find_elements(By.CSS_SELECTOR, "canvas[aria-label*='Scan me'], div[data-ref]")
+            if qr_canvas:
+                return True
+        except Exception:
+            pass
+        return False
+
+    def show_whatsapp_error_prompt(self, title, message):
+        """Displays an on-screen dialog blocking the thread until user resolves/resumes."""
+        self.safe_log_update(f"\n[WA] ⚠️ ERROR: {message}")
+        self.update()
+        response = messagebox.askretrycancel(title, f"{message}\n\nClick 'Retry' once you have resolved this in Chrome, or 'Cancel' to abort.")
+        return response
+
     def robot_whatsapp_blast(self):
         with self.browser_lock:
             self.safe_log_update("\n--- 📱 WHATSAPP BROADCAST ENGINE ---")
@@ -2131,50 +2201,90 @@ del "%~f0"
                 driver.get("https://web.whatsapp.com")
                 self.safe_log_update("[WA] Browser opened. Scan QR if needed. Waiting 20s for interface...")
                 time.sleep(20)
+                
                 for contact in self.contacts:
                     name  = contact.get('name', '')
                     phone = contact.get('phone', '')
                     self.safe_log_update(f"\n-> Sending to: {name} ({phone})")
-                    try:
-                        # Always use direct URL — 100% reliable since all contacts have a phone
-                        driver.get(f"https://web.whatsapp.com/send?phone={phone}")
-                        time.sleep(7)
-
-                        # ── FIND MESSAGE BOX ──
-                        msg_box = None
-                        for xpath in [
-                            '//div[@contenteditable="true"][@data-tab="10"]',
-                            '//div[@title="Type a message"]',
-                            '//div[contains(@aria-label,"Type a message")][@contenteditable="true"]',
-                            '//div[contains(@aria-label,"message")][@contenteditable="true"]',
-                        ]:
-                            try:
-                                msg_box = WebDriverWait(driver, 12).until(EC.element_to_be_clickable((By.XPATH, xpath)))
+                    
+                    retry_count = 0
+                    success = False
+                    
+                    while retry_count < 3 and not success:
+                        try:
+                            # 1. Check if logged out
+                            if self._is_logged_out(driver):
+                                self.safe_log_update("[WA] ❌ Session logged out! Requesting user login...")
+                                if self.show_whatsapp_error_prompt("WhatsApp Logged Out", "WhatsApp session has logged out. Please scan the QR code to log back in."):
+                                    time.sleep(5)
+                                    continue
+                                else:
+                                    raise Exception("User aborted broadcast due to logout.")
+                                    
+                            # 2. Open chat URL
+                            driver.get(f"https://web.whatsapp.com/send?phone={phone}")
+                            time.sleep(7)
+                            
+                            # ── FIND MESSAGE BOX ──
+                            msg_box = None
+                            for xpath in [
+                                '//div[@contenteditable="true"][@data-tab="10"]',
+                                '//div[@title="Type a message"]',
+                                '//div[contains(@aria-label,"Type a message")][@contenteditable="true"]',
+                                '//div[contains(@aria-label,"message")][@contenteditable="true"]',
+                            ]:
+                                try:
+                                    msg_box = WebDriverWait(driver, 12).until(EC.element_to_be_clickable((By.XPATH, xpath)))
+                                    break
+                                except: continue
+                                
+                            if not msg_box:
+                                if self._is_logged_out(driver):
+                                    continue
+                                self.safe_log_update(f"   ❌ Message box not found. Is {phone} on WhatsApp?")
                                 break
-                            except: continue
-
-                        if not msg_box:
-                            self.safe_log_update(f"   ❌ Message box not found. Is {phone} on WhatsApp?")
-                            continue
-
-                        msg_box.click()
-                        time.sleep(0.5)
-
-                        # ── TYPE MESSAGE line by line (Shift+Enter between lines) ──
-                        self.safe_log_update("   [WA] Injecting payload...")
-                        for line in self.last_analysis_msg.split('\n'):
-                            msg_box.send_keys(line)
-                            ActionChains(driver).key_down(Keys.SHIFT).send_keys(Keys.ENTER).key_up(Keys.SHIFT).perform()
-                            time.sleep(0.08)
-
-                        time.sleep(0.5)
-                        msg_box.send_keys(Keys.ENTER)
-                        self.safe_log_update(f"   ✅ Sent to {name}!")
-                        time.sleep(10)
-
-                    except Exception as e:
-                        self.safe_log_update(f"   ❌ Failed for {name}: {str(e)}")
-                        continue
+                                
+                            msg_box.click()
+                            time.sleep(0.5)
+                            
+                            # ── TYPE MESSAGE ──
+                            self.safe_log_update("   [WA] Injecting payload...")
+                            for line in self.last_analysis_msg.split('\n'):
+                                msg_box.send_keys(line)
+                                ActionChains(driver).key_down(Keys.SHIFT).send_keys(Keys.ENTER).key_up(Keys.SHIFT).perform()
+                                time.sleep(0.08)
+                                
+                            time.sleep(0.5)
+                            msg_box.send_keys(Keys.ENTER)
+                            
+                            # ── WAIT FOR DELIVERY STATUS ──
+                            status = self._wait_for_message_delivery(driver, timeout=15)
+                            if status == "sent":
+                                self.safe_log_update(f"   ✅ Sent to {name}!")
+                                success = True
+                                time.sleep(10)
+                            elif status == "pending" or status == "failed":
+                                retry_count += 1
+                                self.safe_log_update(f"   ⚠️ Message stuck in '{status}' state. Refreshing browser (Attempt {retry_count}/3)...")
+                                driver.refresh()
+                                time.sleep(10)
+                            else:
+                                self.safe_log_update(f"   ✅ Sent to {name} (Status: assumed sent).")
+                                success = True
+                                time.sleep(10)
+                                
+                        except Exception as e:
+                            retry_count += 1
+                            self.safe_log_update(f"   ❌ Error (Attempt {retry_count}/3): {str(e)}")
+                            if "user aborted" in str(e).lower():
+                                raise e
+                            time.sleep(5)
+                            
+                    if not success:
+                        self.safe_log_update(f"   ❌ Failed to send message to {name} after multiple retries.")
+                        if not self.show_whatsapp_error_prompt("WhatsApp Message Failed", f"Failed to deliver message to {name} ({phone}). WhatsApp might be stuck or logged out."):
+                            self.safe_log_update("   [WA] Broadcast aborted by user.")
+                            break
 
             except Exception as e:
                 self.safe_log_update(f"❌ WhatsApp Engine Error: {str(e)}")
@@ -2183,7 +2293,6 @@ del "%~f0"
                     driver.quit()
                     self.safe_log_update("\n[WA] Session closed.")
 
-            # ── AUTO-EXPORT: Generate Final Report after broadcast ──
             self.safe_log_update("\n[SYS] Auto-generating Final Daily Report post-broadcast...")
             self.generate_final_report()
 
