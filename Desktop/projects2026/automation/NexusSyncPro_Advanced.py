@@ -48,7 +48,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "14.7"
+CLIENT_VERSION = "14.8"
 PORTAL_URL = "http://122.186.209.30:8068/NCC/Sitapur/Sign-In-Users.php"
 CONFIG_FILE = os.path.join(_BASE_DIR, "nexus_config.json")
 
@@ -557,6 +557,36 @@ class NexusSyncPro(ctk.CTk):
             if raw_files:
                 self.analyze_data(max(raw_files, key=os.path.getctime))
 
+    def manual_open_chrome_profile(self):
+        """Launches a visible Chrome window using the client's WhatsApp profile and keeps it open."""
+        def run_chrome():
+            with self.browser_lock:
+                self.safe_log_update("\n--- 🌐 LAUNCHING CHROME PROFILE ---")
+                self.safe_log_update("[SYS] Opening Chrome with your WhatsApp profile. Please do not run broadcasts or pulls until you close this browser window.")
+                driver = None
+                try:
+                    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=self.get_armored_options(False))
+                    driver.get("https://web.whatsapp.com")
+                    self.safe_log_update("[SYS] Chrome is open. Close the Chrome window when you are finished.")
+                    
+                    while True:
+                        try:
+                            # Ping window handles to check if closed by user
+                            _ = driver.window_handles
+                            time.sleep(1)
+                        except Exception:
+                            break
+                except Exception as e:
+                    self.safe_log_update(f"[SYS] ❌ Failed to open Chrome: {e}")
+                finally:
+                    if driver:
+                        try:
+                            driver.quit()
+                        except: pass
+                    self.safe_log_update("[SYS] Chrome session closed. Control returned to Nexus.")
+        
+        threading.Thread(target=run_chrome, daemon=True).start()
+
     def _periodic_update_check(self):
         """Run OTA update check at startup and then every 2 hours throughout the day."""
         while True:
@@ -829,6 +859,10 @@ del "%~f0"
         self.ws_btn = ctk.CTkButton(ctrl_frame, text="📁 CHANGE WORKSPACE", fg_color="transparent", border_width=1, border_color=CLR_BORDER,
                                      text_color=CLR_TEXT, font=("Segoe UI", 13, "bold"), height=40, command=self.manual_change_workspace)
         self.ws_btn.pack(fill="x", pady=5)
+
+        self.chrome_btn = ctk.CTkButton(ctrl_frame, text="🌐 OPEN WHATSAPP CHROME", fg_color="transparent", border_width=1, border_color="#f43f5e",
+                                     text_color="#f43f5e", font=("Segoe UI", 13, "bold"), height=40, command=self.manual_open_chrome_profile)
+        self.chrome_btn.pack(fill="x", pady=5)
 
         ctk.CTkFrame(self.sidebar_scroll, fg_color=CLR_BORDER, height=2).pack(fill="x", padx=30, pady=20)
 
