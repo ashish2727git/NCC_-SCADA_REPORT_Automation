@@ -3538,53 +3538,39 @@ del "%~f0"
             height=30, width=100, command=self.start_historical_scan
         ).pack(side="right", padx=15, pady=10)
         
-        # 2. Horizontal Body Frame
+        # Horizontal KPI Cards Row (Top)
+        self.kpi_panel = ctk.CTkFrame(main_container, fg_color="transparent")
+        self.kpi_panel.pack(fill="x", pady=(0, 15))
+        
+        # Use grid for equal distribution
+        self.kpi_panel.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+        
+        self.kpi_cards = {}
+        
+        c1_frame, self.c1_val, self.c1_sub = self.create_kpi_card(self.kpi_panel, "System Status", "ONLINE", "Overall system state")
+        c1_frame.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        
+        c2_frame, self.c2_val, self.c2_sub = self.create_kpi_card(self.kpi_panel, "Sync Success", "0.0%", "SCADA transmission rate")
+        c2_frame.grid(row=0, column=1, sticky="ew", padx=5)
+        
+        c3_frame, self.c3_val, self.c3_sub = self.create_kpi_card(self.kpi_panel, "Avg Hours Sync", "0.0 hrs", "Active run times per day")
+        c3_frame.grid(row=0, column=2, sticky="ew", padx=5)
+        
+        c4_frame, self.c4_val, self.c4_sub = self.create_kpi_card(self.kpi_panel, "JJM Connection", "CONNECTED", "Portal status map")
+        c4_frame.grid(row=0, column=3, sticky="ew", padx=5)
+        
+        c5_frame, self.c5_val, self.c5_sub = self.create_kpi_card(self.kpi_panel, "Active Days", "0 days", "Total online vs offline")
+        c5_frame.grid(row=0, column=4, sticky="ew", padx=(5, 0))
+        
+        # 2. Main Chart Frame
         body_frame = ctk.CTkFrame(main_container, fg_color="transparent")
         body_frame.pack(fill="both", expand=True)
         
-        # Left Panel (KPI cards)
-        self.left_kpi_panel = ctk.CTkFrame(body_frame, fg_color="transparent", width=260)
-        self.left_kpi_panel.pack(side="left", fill="y", padx=(0, 10))
-        self.left_kpi_panel.pack_propagate(False)
-        
-        ctk.CTkLabel(
-            self.left_kpi_panel, text="📈 KEY PERFORMANCE METRICS", 
-            font=("Segoe UI", 11, "bold"), text_color=CLR_DIM
-        ).pack(anchor="w", pady=(0, 8))
-        
-        # Scrollable container for KPI cards
-        self.kpi_cards_container = ctk.CTkScrollableFrame(self.left_kpi_panel, fg_color="transparent")
-        self.kpi_cards_container.pack(fill="both", expand=True)
-        
-        # Create 5 KPI cards
-        self.kpi_cards = {}
-        
-        # Card 1: Status / Overall Monitored
-        c1_frame, self.c1_val, self.c1_sub = self.create_kpi_card(self.kpi_cards_container, "System Status", "ONLINE", "Overall system state")
-        c1_frame.pack(fill="x", pady=4)
-        
-        # Card 2: Sync Success Rate / Overall Sync Rate
-        c2_frame, self.c2_val, self.c2_sub = self.create_kpi_card(self.kpi_cards_container, "Sync Success", "0.0%", "SCADA transmission rate")
-        c2_frame.pack(fill="x", pady=4)
-        
-        # Card 3: Avg Active Hours / Overall Live JJM
-        c3_frame, self.c3_val, self.c3_sub = self.create_kpi_card(self.kpi_cards_container, "Avg Hours Sync", "0.0 hrs", "Active run times per day")
-        c3_frame.pack(fill="x", pady=4)
-        
-        # Card 4: JJM Connection Status / Data Points
-        c4_frame, self.c4_val, self.c4_sub = self.create_kpi_card(self.kpi_cards_container, "JJM Connection", "CONNECTED", "Portal status map")
-        c4_frame.pack(fill="x", pady=4)
-        
-        # Card 5: Offline Days Count / Reports Count
-        c5_frame, self.c5_val, self.c5_sub = self.create_kpi_card(self.kpi_cards_container, "Active Days", "0 days", "Total days online vs offline")
-        c5_frame.pack(fill="x", pady=4)
-        
-        # Right Panel (Chart)
         chart_container = ctk.CTkFrame(body_frame, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
-        chart_container.pack(side="right", fill="both", expand=True, padx=(10, 0))
+        chart_container.pack(fill="both", expand=True, padx=0, pady=0)
         
         self.chart_canvas = tk.Canvas(chart_container, bg=CLR_LOG_BG, highlightthickness=0)
-        self.chart_canvas.pack(fill="both", expand=True, padx=12, pady=12)
+        self.chart_canvas.pack(fill="both", expand=True, padx=15, pady=15)
         
         # Events bindings
         self.chart_canvas.bind("<Configure>", lambda e: self.draw_history_chart())
@@ -4163,26 +4149,31 @@ del "%~f0"
             poly_points.extend([cx, cy])
         poly_points.extend([margin_x + plot_w, margin_y + plot_h, margin_x + plot_w, margin_y + plot_h])
         
-        # Draw shaded polygon stipple
+        # Draw solid shade polygon (modern flat fill)
         self.chart_canvas.create_polygon(
             poly_points, smooth=True, splinesteps=36,
-            fill=shade_color, outline="", stipple="gray25"
+            fill=shade_color, outline=""
         )
         
-        # Draw spline line
+        # Draw glow line (thicker, lower opacity illusion)
         flat_coords = []
         for cx, cy in coords:
             flat_coords.extend([cx, cy])
         self.chart_canvas.create_line(
             flat_coords, smooth=True, splinesteps=36,
+            fill=shade_color, width=8
+        )
+        # Draw sharp spline line
+        self.chart_canvas.create_line(
+            flat_coords, smooth=True, splinesteps=36,
             fill=line_color, width=3
         )
         
-        # Draw point dots
+        # Draw modern point dots (hollow with accent)
         for cx, cy in coords:
             self.chart_canvas.create_oval(
-                cx - 4, cy - 4, cx + 4, cy + 4,
-                fill=line_color, outline=CLR_TEXT, width=1.5
+                cx - 5, cy - 5, cx + 5, cy + 5,
+                fill=CLR_BG, outline=line_color, width=2
             )
 
     def on_canvas_hover(self, event):
@@ -4277,35 +4268,42 @@ del "%~f0"
             if last_time and last_time != "N/A":
                 info_lines.append(f"🕒 Last: {last_time}")
                 
-        # Draw Tooltip Frame
-        padding = 10
-        line_height = 18
-        box_w = 175
+        # Draw Tooltip Frame (Modern Glassmorphic feel)
+        padding = 12
+        line_height = 20
+        box_w = 190
         box_h = len(info_lines) * line_height + padding * 2
         
         if x > margin_x + plot_w / 2:
-            box_x = x - box_w - 15
+            box_x = x - box_w - 20
         else:
-            box_x = x + 15
+            box_x = x + 20
             
         box_y = event.y - box_h / 2
         box_y = max(margin_y, min(box_y, margin_y + plot_h - box_h))
         
+        # Drop shadow
+        self.chart_canvas.create_rectangle(
+            box_x + 4, box_y + 4, box_x + box_w + 4, box_y + box_h + 4, 
+            fill="#000000", outline="", stipple="gray50", tags="hover_indicator"
+        )
+        
+        # Solid Tooltip body
         self.chart_canvas.create_rectangle(
             box_x, box_y, box_x + box_w, box_y + box_h, 
-            fill=CLR_BG, outline=CLR_BORDER, width=1.5, tags="hover_indicator"
+            fill="#1e293b", outline=CLR_CYAN, width=1.5, tags="hover_indicator"
         )
         
         for i, line in enumerate(info_lines):
-            t_color = CLR_TEXT if i == 0 else (
+            t_color = "#f8fafc" if i == 0 else (
                 CLR_CYAN if "SCADA" in line or "ONLINE" in line else (
                     CLR_GREEN if "JJM" in line or "Runs" in line or "CONNECTED" in line else CLR_DIM
                 )
             )
-            font_w = "bold" if i == 0 else "normal"
+            font_w = "bold" if i == 0 else "bold"
             self.chart_canvas.create_text(
                 box_x + padding, box_y + padding + i * line_height + line_height / 2, 
-                text=line, fill=t_color, font=("Segoe UI", 9, font_w), anchor="w", tags="hover_indicator"
+                text=line, fill=t_color, font=("Segoe UI", 10, font_w), anchor="w", tags="hover_indicator"
             )
 
     def on_canvas_leave(self, event):
