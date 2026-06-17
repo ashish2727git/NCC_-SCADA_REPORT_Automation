@@ -1185,6 +1185,34 @@ del "%~f0"
         self.preview_terminal = ctk.CTkTextbox(self.preview_container, fg_color="#f3f4f6", text_color=CLR_TEXT, font=("Segoe UI", 12))
         self.preview_terminal.pack(fill="both", expand=True, padx=10, pady=10)
 
+        # 5. Broadcast Activity / Last Sync Status Block
+        self.activity_outer = ctk.CTkFrame(self.display, fg_color="transparent")
+        self.activity_outer.pack(fill="x", pady=(10, 0))
+
+        self.broadcast_status_frame = ctk.CTkFrame(self.activity_outer, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
+        self.broadcast_status_frame.pack(side="left", fill="both", expand=True, padx=(0, 8))
+        ctk.CTkLabel(self.broadcast_status_frame, text="📡 LAST BROADCAST STATUS", font=("Segoe UI", 11, "bold"), text_color=CLR_GOLD).pack(anchor="w", padx=15, pady=(10, 2))
+        self.broadcast_status_lbl = ctk.CTkLabel(self.broadcast_status_frame, text="No broadcast sent yet.", font=("Segoe UI", 11), text_color=CLR_DIM, wraplength=380, justify="left")
+        self.broadcast_status_lbl.pack(anchor="w", padx=15, pady=(0, 8))
+        self.broadcast_count_lbl = ctk.CTkLabel(self.broadcast_status_frame, text="Contacts Reached: --", font=("Segoe UI", 10, "bold"), text_color=CLR_GREEN)
+        self.broadcast_count_lbl.pack(anchor="w", padx=15, pady=(0, 10))
+
+        self.sync_status_frame = ctk.CTkFrame(self.activity_outer, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
+        self.sync_status_frame.pack(side="left", fill="both", expand=True, padx=(8, 8))
+        ctk.CTkLabel(self.sync_status_frame, text="⏱️ LAST DATA SYNC", font=("Segoe UI", 11, "bold"), text_color=CLR_CYAN).pack(anchor="w", padx=15, pady=(10, 2))
+        self.sync_status_lbl = ctk.CTkLabel(self.sync_status_frame, text="No sync recorded yet.", font=("Segoe UI", 11), text_color=CLR_DIM, wraplength=380, justify="left")
+        self.sync_status_lbl.pack(anchor="w", padx=15, pady=(0, 8))
+        self.sync_file_lbl = ctk.CTkLabel(self.sync_status_frame, text="Latest File: --", font=("Segoe UI", 10, "bold"), text_color=CLR_TEXT)
+        self.sync_file_lbl.pack(anchor="w", padx=15, pady=(0, 10))
+
+        self.report_status_frame = ctk.CTkFrame(self.activity_outer, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
+        self.report_status_frame.pack(side="left", fill="both", expand=True, padx=(8, 0))
+        ctk.CTkLabel(self.report_status_frame, text="📊 DAILY REPORT STATUS", font=("Segoe UI", 11, "bold"), text_color="#a78bfa").pack(anchor="w", padx=15, pady=(10, 2))
+        self.report_status_lbl = ctk.CTkLabel(self.report_status_frame, text="No report generated yet.", font=("Segoe UI", 11), text_color=CLR_DIM, wraplength=380, justify="left")
+        self.report_status_lbl.pack(anchor="w", padx=15, pady=(0, 8))
+        self.report_path_lbl = ctk.CTkLabel(self.report_status_frame, text="Saved to: --", font=("Segoe UI", 10, "bold"), text_color=CLR_TEXT)
+        self.report_path_lbl.pack(anchor="w", padx=15, pady=(0, 10))
+
 
         # --- HISTORICAL VIEWER TAB ---
         self.setup_history_ui()
@@ -1217,28 +1245,91 @@ del "%~f0"
     def setup_history_ui(self):
         # 📂 HISTORICAL VIEWER Tab controls
         controls_frame = ctk.CTkFrame(self.tab_history, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
-        controls_frame.pack(fill="x", padx=15, pady=15)
-        
-        ctk.CTkLabel(controls_frame, text="Select Report Date:", font=("Segoe UI", 12, "bold"), text_color=CLR_TEXT).pack(side="left", padx=15, pady=15)
-        
-        self.selected_date_var = tk.StringVar()
-        self.date_dropdown = ctk.CTkOptionMenu(controls_frame, variable=self.selected_date_var, values=["No reports found"], command=self.load_historical_file)
-        self.date_dropdown.pack(side="left", padx=10, pady=15)
-        
-        self.refresh_dates_btn = ctk.CTkButton(controls_frame, text="🔄 Refresh List", width=100, fg_color="transparent", border_width=1, border_color=CLR_BORDER, text_color=CLR_TEXT, command=self.refresh_historical_dates)
-        self.refresh_dates_btn.pack(side="left", padx=5, pady=15)
-        
-        self.save_edit_btn = ctk.CTkButton(controls_frame, text="💾 Save Changes", fg_color=CLR_GREEN, hover_color="#059669", text_color="#ffffff", command=self.save_historical_changes, state="disabled")
-        self.save_edit_btn.pack(side="right", padx=15, pady=15)
-        
+        controls_frame.pack(fill="x", padx=15, pady=(10, 5))
+
+        # LEFT: Calendar picker block
+        date_block = ctk.CTkFrame(controls_frame, fg_color="transparent")
+        date_block.pack(side="left", padx=15, pady=12)
+
+        ctk.CTkLabel(date_block, text="📅 Report Date:", font=("Segoe UI", 11, "bold"), text_color=CLR_DIM).pack(anchor="w", pady=(0, 4))
+
+        picker_row = ctk.CTkFrame(date_block, fg_color="transparent")
+        picker_row.pack(fill="x")
+
+        self.selected_date_var = tk.StringVar(value="No reports found")
+        self.cal_date_display = ctk.CTkLabel(
+            picker_row,
+            textvariable=self.selected_date_var,
+            font=("Segoe UI", 13, "bold"),
+            text_color=CLR_CYAN,
+            fg_color="#1e293b",
+            corner_radius=6,
+            padx=12, pady=6,
+            width=160
+        )
+        self.cal_date_display.pack(side="left", padx=(0, 8))
+
+        self.cal_open_btn = ctk.CTkButton(
+            picker_row,
+            text="📆 Open Calendar",
+            font=("Segoe UI", 11, "bold"),
+            fg_color="#0ea5e9", hover_color="#0284c7",
+            text_color="#ffffff", height=34, width=140,
+            command=self._open_calendar_picker
+        )
+        self.cal_open_btn.pack(side="left")
+
+        self.refresh_dates_btn = ctk.CTkButton(
+            picker_row, text="🔄", width=34, height=34,
+            fg_color="transparent", border_width=1, border_color=CLR_BORDER,
+            text_color=CLR_TEXT, font=("Segoe UI", 14),
+            command=self.refresh_historical_dates
+        )
+        self.refresh_dates_btn.pack(side="left", padx=(6, 0))
+
+        # MIDDLE: Zoom Control
+        zoom_sep = ctk.CTkFrame(controls_frame, fg_color=CLR_BORDER, width=1)
+        zoom_sep.pack(side="left", fill="y", padx=16, pady=8)
+
+        zoom_block = ctk.CTkFrame(controls_frame, fg_color="transparent")
+        zoom_block.pack(side="left", pady=12)
+        ctk.CTkLabel(zoom_block, text="🔍 Zoom:", font=("Segoe UI", 11, "bold"), text_color=CLR_DIM).pack(anchor="w", pady=(0, 4))
+        zoom_row = ctk.CTkFrame(zoom_block, fg_color="transparent")
+        zoom_row.pack(fill="x")
+        self.zoom_var = tk.IntVar(value=100)
+        self.zoom_label = ctk.CTkLabel(zoom_row, text="100%", font=("Segoe UI", 11, "bold"), text_color=CLR_CYAN, width=44)
+        self.zoom_label.pack(side="left", padx=(0, 6))
+        self.zoom_slider = ctk.CTkSlider(
+            zoom_row, from_=10, to=200, number_of_steps=38,
+            variable=self.zoom_var, width=180,
+            command=self._on_zoom_change
+        )
+        self.zoom_slider.pack(side="left")
+
+        # RIGHT: Save button
+        self.save_edit_btn = ctk.CTkButton(
+            controls_frame, text="💾 Save Changes",
+            fg_color=CLR_GREEN, hover_color="#059669",
+            text_color="#ffffff", command=self.save_historical_changes, state="disabled"
+        )
+        self.save_edit_btn.pack(side="right", padx=15, pady=12)
+
         # Grid View Frame
         self.grid_frame = ctk.CTkFrame(self.tab_history, fg_color="transparent")
         self.grid_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
-        
+
         self.history_tree = None
         self.loaded_df = None
         self.loaded_filepath = None
-        
+        self.active_cell_entry = None
+        self._current_zoom = 100
+        self._available_report_dates = []   # list of datetime objects with reports
+        self._all_dated_folders = {}        # date_str -> folder path (all data folders)
+
+        # File strip panel (shown after date pick)
+        self.file_strip_frame = ctk.CTkFrame(self.tab_history, fg_color="#0f172a", border_width=1, border_color=CLR_BORDER)
+        # Not packed yet — shown dynamically when a date is chosen
+
         self.refresh_historical_dates()
 
     def on_tab_changed(self):
@@ -1259,35 +1350,350 @@ del "%~f0"
         else:
             base_dir = self.workspace_base
 
-        files = glob.glob(os.path.join(base_dir, '**', 'Final_Daily_Report_*.xlsx'), recursive=True)
-        dates = []
+        # ── Discover Final Daily Report dates (for calendar highlight) ──
+        final_files = glob.glob(os.path.join(base_dir, '**', 'Final_Daily_Report_*.xlsx'), recursive=True)
+        report_dates = []
         self.history_file_map = {}
-        for f in files:
+        for f in final_files:
             basename = os.path.basename(f)
             match = re.search(r'Final_Daily_Report_(.*?)\.xlsx', basename)
             if match:
                 date_str = match.group(1)
-                dates.append(date_str)
+                report_dates.append(date_str)
                 self.history_file_map[date_str] = f
-                
+
+        # ── Discover ALL dated folders (dd-mm-yyyy pattern) with any xlsx ──
+        self._all_dated_folders = {}
+        try:
+            for entry in os.scandir(base_dir):
+                if entry.is_dir():
+                    folder_name = entry.name
+                    # Match dd-mm-yyyy OR ddmm (legacy) folder patterns
+                    if re.match(r'^\d{2}-\d{2}-\d{4}$', folder_name):
+                        xlsx_in_folder = glob.glob(os.path.join(entry.path, '*.xlsx'))
+                        if xlsx_in_folder:
+                            self._all_dated_folders[folder_name] = entry.path
+        except Exception:
+            pass
+
         def parse_date(d):
             try:
                 return datetime.strptime(d, "%d-%m-%Y")
             except:
                 return datetime.min
-        dates.sort(key=parse_date, reverse=True)
-        
+        report_dates.sort(key=parse_date, reverse=True)
+
+        # All known calendar dates = union of report dates + all data folder dates
+        all_calendar_dates = set(report_dates) | set(self._all_dated_folders.keys())
+
         def update_gui():
-            if dates:
-                self.date_dropdown.configure(values=dates)
-                if not self.selected_date_var.get() or self.selected_date_var.get() not in dates:
-                    self.selected_date_var.set(dates[0])
-                    self.load_historical_file(dates[0])
+            self._available_report_dates = []
+            for d in all_calendar_dates:
+                try:
+                    self._available_report_dates.append(datetime.strptime(d, "%d-%m-%Y"))
+                except:
+                    pass
+
+            if report_dates:
+                if not self.selected_date_var.get() or self.selected_date_var.get() not in report_dates:
+                    self.selected_date_var.set(report_dates[0])
+                    self._show_file_strip(report_dates[0])
+                    self.load_historical_file(report_dates[0])
+            elif self._all_dated_folders:
+                first_date = sorted(self._all_dated_folders.keys(), key=parse_date, reverse=True)[0]
+                self.selected_date_var.set(first_date)
+                self._show_file_strip(first_date)
             else:
-                self.date_dropdown.configure(values=["No reports found"])
                 self.selected_date_var.set("No reports found")
 
         self.after(0, update_gui)
+
+    def _open_calendar_picker(self):
+        """Open a premium dark-themed calendar popup with report dates highlighted."""
+        try:
+            from tkcalendar import Calendar as TkCalendar
+        except ImportError:
+            messagebox.showerror("Missing Library", "tkcalendar is not installed.\nRun: pip install tkcalendar")
+            return
+
+        popup = ctk.CTkToplevel(self)
+        popup.title("Select Report Date")
+        popup.resizable(False, False)
+        popup.attributes("-topmost", True)
+        popup.configure(fg_color="#0f172a")
+
+        popup.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - 210
+        y = self.winfo_y() + (self.winfo_height() // 2) - 220
+        popup.geometry(f"420+{x}+{y}")
+
+        ctk.CTkLabel(
+            popup, text="📅  Select Date",
+            font=("Segoe UI", 15, "bold"), text_color=CLR_CYAN
+        ).pack(pady=(16, 4))
+        ctk.CTkLabel(
+            popup, text="🟢 Blue = Final Report  │  ⚪ Grey = Raw data only",
+            font=("Segoe UI", 10), text_color=CLR_DIM
+        ).pack(pady=(0, 10))
+
+        current_str = self.selected_date_var.get()
+        try:
+            init_date = datetime.strptime(current_str, "%d-%m-%Y")
+        except:
+            init_date = datetime.today()
+
+        cal = TkCalendar(
+            popup,
+            selectmode='day',
+            year=init_date.year,
+            month=init_date.month,
+            day=init_date.day,
+            background="#1e293b",
+            foreground="#f1f5f9",
+            bordercolor="#334155",
+            headersbackground="#0f172a",
+            headersforeground="#0ea5e9",
+            selectbackground="#0ea5e9",
+            selectforeground="#0f172a",
+            normalbackground="#1e293b",
+            normalforeground="#f1f5f9",
+            weekendbackground="#1e293b",
+            weekendforeground="#94a3b8",
+            othermonthbackground="#0f172a",
+            othermonthforeground="#475569",
+            othermonthwebackground="#0f172a",
+            othermonthweforeground="#475569",
+            disabledbackground="#0f172a",
+            cursor="hand2",
+            font=("Segoe UI", 10),
+            date_pattern="dd-mm-yyyy",
+        )
+        cal.pack(padx=20, pady=6, fill="both", expand=True)
+
+        # Blue highlight = has Final Daily Report
+        for dt in getattr(self, '_available_report_dates', []):
+            date_str_check = dt.strftime("%d-%m-%Y")
+            if date_str_check in self.history_file_map:
+                cal.calevent_create(dt, "Final Report", "report_day")
+            else:
+                cal.calevent_create(dt, "Raw Data", "raw_day")
+        cal.tag_config("report_day", background="#0ea5e9", foreground="#0f172a")
+        cal.tag_config("raw_day",    background="#475569", foreground="#f1f5f9")
+
+        btn_row = ctk.CTkFrame(popup, fg_color="transparent")
+        btn_row.pack(fill="x", padx=20, pady=(8, 16))
+
+        def on_select():
+            chosen = cal.get_date()   # dd-mm-yyyy
+            folder_has_data = chosen in self.history_file_map or chosen in getattr(self, '_all_dated_folders', {})
+            if folder_has_data:
+                self.selected_date_var.set(chosen)
+                self._show_file_strip(chosen)
+                # Auto-load Final report if it exists; else let user pick from strip
+                if chosen in self.history_file_map:
+                    self.load_historical_file(chosen)
+                popup.destroy()
+            else:
+                err_lbl.configure(text=f"❌ No data found for {chosen}")
+
+        ctk.CTkButton(
+            btn_row, text="✅  Open Date",
+            font=("Segoe UI", 12, "bold"),
+            fg_color=CLR_GREEN, hover_color="#059669",
+            text_color="#ffffff", height=38,
+            command=on_select
+        ).pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        ctk.CTkButton(
+            btn_row, text="✕  Cancel",
+            font=("Segoe UI", 12, "bold"),
+            fg_color="transparent", border_width=1, border_color=CLR_BORDER,
+            text_color=CLR_DIM, height=38,
+            command=popup.destroy
+        ).pack(side="left", fill="x", expand=True, padx=(6, 0))
+
+        err_lbl = ctk.CTkLabel(popup, text="", font=("Segoe UI", 10), text_color="#f87171")
+        err_lbl.pack(pady=(0, 8))
+
+    def _show_file_strip(self, date_str):
+        """Show a horizontal scrollable strip of all xlsx files for the chosen date folder."""
+        # Clear old strip contents
+        for w in self.file_strip_frame.winfo_children():
+            w.destroy()
+
+        # Gather files: Final report + raw data files from folder
+        files_info = []   # list of (label, filepath, is_final)
+
+        # Final report
+        final_path = self.history_file_map.get(date_str)
+        if final_path and os.path.exists(final_path):
+            files_info.append(("★ FINAL REPORT", final_path, True))
+
+        # Raw GP data files from folder
+        folder = getattr(self, '_all_dated_folders', {}).get(date_str)
+        if folder and os.path.exists(folder):
+            for f in sorted(os.listdir(folder)):
+                if f.endswith('.xlsx') and not f.startswith('Final_Daily_Report'):
+                    files_info.append((os.path.splitext(f)[0], os.path.join(folder, f), False))
+
+        if not files_info:
+            self.file_strip_frame.pack_forget()
+            return
+
+        # Header row
+        header_row = ctk.CTkFrame(self.file_strip_frame, fg_color="transparent")
+        header_row.pack(fill="x", padx=12, pady=(8, 4))
+        ctk.CTkLabel(
+            header_row,
+            text=f"📂  Files in {date_str}  —  {len(files_info)} file(s) found",
+            font=("Segoe UI", 11, "bold"), text_color=CLR_CYAN
+        ).pack(side="left")
+        ctk.CTkLabel(
+            header_row,
+            text="Click any file to load it into the viewer →",
+            font=("Segoe UI", 10), text_color=CLR_DIM
+        ).pack(side="right")
+
+        # Scrollable horizontal card strip
+        scroll_canvas = tk.Canvas(
+            self.file_strip_frame,
+            height=72, bg="#0f172a", highlightthickness=0
+        )
+        h_scroll = tk.Scrollbar(self.file_strip_frame, orient="horizontal", command=scroll_canvas.xview)
+        scroll_canvas.configure(xscrollcommand=h_scroll.set)
+        h_scroll.pack(side="bottom", fill="x", padx=12)
+        scroll_canvas.pack(side="left", fill="x", expand=True, padx=12)
+
+        inner_frame = tk.Frame(scroll_canvas, bg="#0f172a")
+        scroll_canvas.create_window((0, 0), window=inner_frame, anchor="nw")
+
+        def on_inner_configure(e):
+            scroll_canvas.configure(scrollregion=scroll_canvas.bbox("all"))
+        inner_frame.bind("<Configure>", on_inner_configure)
+
+        # Mouse-wheel horizontal scroll
+        def on_mousewheel(e):
+            scroll_canvas.xview_scroll(int(-1 * (e.delta / 120)), "units")
+        scroll_canvas.bind("<MouseWheel>", on_mousewheel)
+
+        for label, fpath, is_final in files_info:
+            card_bg  = "#1a3a52" if is_final else "#1e293b"
+            card_hl  = "#0ea5e9" if is_final else "#334155"
+            tag_color = CLR_GOLD if is_final else CLR_CYAN
+            tag_text  = "FINAL" if is_final else "RAW"
+            fname = os.path.basename(fpath)
+
+            card = tk.Frame(inner_frame, bg=card_bg, padx=8, pady=6, cursor="hand2",
+                            highlightbackground=card_hl, highlightthickness=1)
+            card.pack(side="left", padx=(0, 8), pady=4)
+
+            tag_lbl = tk.Label(card, text=f"  {tag_text}  ", bg=tag_color,
+                               fg="#0f172a", font=("Segoe UI", 7, "bold"))
+            tag_lbl.pack(anchor="w")
+
+            name_lbl = tk.Label(card, text=label[:30] + ("..." if len(label) > 30 else ""),
+                                bg=card_bg, fg="#f1f5f9",
+                                font=("Segoe UI", 9, "bold"), wraplength=160, justify="left")
+            name_lbl.pack(anchor="w", pady=(2, 0))
+
+            size_kb = os.path.getsize(fpath) // 1024
+            size_lbl = tk.Label(card, text=f"{size_kb} KB",
+                                bg=card_bg, fg="#64748b", font=("Segoe UI", 8))
+            size_lbl.pack(anchor="w")
+
+            def make_loader(fp, lbl):
+                def _load(e=None):
+                    self._load_any_file(fp, lbl)
+                return _load
+
+            loader = make_loader(fpath, label)
+            for widget in [card, tag_lbl, name_lbl, size_lbl]:
+                widget.bind("<Button-1>", loader)
+                widget.bind("<Enter>", lambda e, c=card, h=card_hl: c.config(highlightbackground="#38bdf8", highlightthickness=2))
+                widget.bind("<Leave>", lambda e, c=card, h=card_hl: c.config(highlightbackground=h, highlightthickness=1))
+
+        # Show the strip between controls and grid
+        self.file_strip_frame.pack(fill="x", padx=15, pady=(0, 5),
+                                   before=self.grid_frame)
+
+    def _load_any_file(self, filepath, label):
+        """Load any xlsx into the viewer grid (final report or raw GP data)."""
+        if not filepath or not os.path.exists(filepath):
+            messagebox.showerror("File Not Found", f"Cannot find:\n{filepath}")
+            return
+        try:
+            df = pd.read_excel(filepath, header=None, nrows=20)
+            # Auto-detect header row (row with most non-null values)
+            header_row = int(df.notna().sum(axis=1).idxmax())
+            df = pd.read_excel(filepath, header=header_row)
+            df.columns = [str(c).strip() for c in df.columns]
+            if df.empty:
+                messagebox.showwarning("Empty File", "The selected file has no readable data.")
+                return
+
+            self.loaded_filepath = filepath
+            self.loaded_df = df
+
+            for child in self.grid_frame.winfo_children():
+                child.destroy()
+
+            import tkinter.ttk as ttk
+            style = ttk.Style()
+            style.theme_use('clam')
+            zoom = getattr(self, '_current_zoom', 100)
+            rh = max(14, int(28 * zoom / 100))
+            fs = max(7, int(10 * zoom / 100))
+            style.configure("Nexus.Treeview",
+                            background="#1e293b", foreground="#f1f5f9",
+                            rowheight=rh, fieldbackground="#1e293b",
+                            font=("Segoe UI", fs))
+            style.map("Nexus.Treeview",
+                      background=[('selected', '#0ea5e9')],
+                      foreground=[('selected', '#0f172a')])
+            style.configure("Nexus.Treeview.Heading",
+                            background="#0f172a", foreground="#0ea5e9",
+                            font=("Segoe UI", fs, "bold"),
+                            borderwidth=1, bordercolor="#334155")
+
+            cols = ["sr_no"] + list(df.columns)
+            self.grid_frame.rowconfigure(0, weight=1)
+            self.grid_frame.columnconfigure(0, weight=1)
+
+            self.history_tree = ttk.Treeview(self.grid_frame, columns=cols, show="headings", style="Nexus.Treeview")
+            self.history_tree.grid(row=0, column=0, sticky="nsew")
+
+            self.history_tree.heading("sr_no", text="Sr.No", command=lambda: self.sort_history_column("sr_no", False))
+            self.history_tree.column("sr_no", width=55, minwidth=50, anchor="center")
+            for col in df.columns:
+                self.history_tree.heading(col, text=str(col), command=lambda c=col: self.sort_history_column(c, False))
+                self.history_tree.column(col, width=150, minwidth=80, anchor="w")
+
+            v_scroll = ctk.CTkScrollbar(self.grid_frame, orientation="vertical", command=self.history_tree.yview)
+            v_scroll.grid(row=0, column=1, sticky="ns")
+            h_scroll = ctk.CTkScrollbar(self.grid_frame, orientation="horizontal", command=self.history_tree.xview)
+            h_scroll.grid(row=1, column=0, sticky="ew")
+            self.history_tree.configure(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
+
+            # File info banner
+            row_count = len(df)
+            col_count = len(df.columns)
+            info_lbl = ctk.CTkLabel(
+                self.grid_frame,
+                text=f"📄  {os.path.basename(filepath)}  │  {row_count} rows × {col_count} columns",
+                font=("Segoe UI", 10, "bold"), text_color=CLR_DIM,
+                fg_color="#0f172a", anchor="w"
+            )
+            info_lbl.grid(row=2, column=0, columnspan=2, sticky="ew", padx=4, pady=(2, 0))
+
+            for idx, row in enumerate(df.values, 1):
+                vals = [idx] + ["" if pd.isna(x) else str(x) for x in row]
+                self.history_tree.insert("", "end", values=vals)
+
+            self.history_tree.bind("<Double-1>", self.on_history_cell_double_click)
+            self.save_edit_btn.configure(state="normal")
+
+        except Exception as e:
+            messagebox.showerror("Load Error", f"Failed to load file:\n{os.path.basename(filepath)}\n\n{e}")
 
     def load_historical_file(self, date_str):
         filepath = getattr(self, 'history_file_map', {}).get(date_str)
@@ -1354,7 +1760,31 @@ del "%~f0"
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load daily report:\n{e}")
 
+    def _on_zoom_change(self, value):
+        """Scale treeview row height and font size based on zoom slider."""
+        zoom = int(float(value))
+        self._current_zoom = zoom
+        self.zoom_label.configure(text=f"{zoom}%")
+        if not self.history_tree:
+            return
+        import tkinter.ttk as ttk
+        base_row_height = 28
+        base_font_size = 10
+        new_row_height = max(14, int(base_row_height * zoom / 100))
+        new_font_size = max(7, int(base_font_size * zoom / 100))
+        style = ttk.Style()
+        style.configure("Nexus.Treeview", rowheight=new_row_height, font=("Segoe UI", new_font_size))
+        style.configure("Nexus.Treeview.Heading", font=("Segoe UI", new_font_size, "bold"))
+
     def on_history_cell_double_click(self, event):
+        # Close any previously opened cell editor first
+        if self.active_cell_entry is not None:
+            try:
+                self.active_cell_entry.destroy()
+            except Exception:
+                pass
+            self.active_cell_entry = None
+
         region = self.history_tree.identify_region(event.x, event.y)
         if region != "cell":
             return
@@ -1370,6 +1800,7 @@ del "%~f0"
             
         x, y, w, h = self.history_tree.bbox(item_id, column_id)
         entry = ctk.CTkEntry(self.history_tree, width=w, height=h, font=("Segoe UI", 10), fg_color="#f3f4f6", text_color=CLR_TEXT, border_width=1, border_color=CLR_CYAN)
+        self.active_cell_entry = entry
         current_val = self.history_tree.item(item_id, "values")[col_idx]
         entry.insert(0, current_val)
         entry.place(x=x, y=y)
@@ -1380,14 +1811,23 @@ del "%~f0"
             vals = list(self.history_tree.item(item_id, "values"))
             vals[col_idx] = new_val
             self.history_tree.item(item_id, values=vals)
-            
             all_items = self.history_tree.get_children("")
             row_idx = all_items.index(item_id)
             self.loaded_df.iat[row_idx, col_idx - 1] = new_val
-            entry.destroy()
+            if self.active_cell_entry is entry:
+                self.active_cell_entry = None
+            try:
+                entry.destroy()
+            except Exception:
+                pass
             
         def cancel_cell_edit(event=None):
-            entry.destroy()
+            if self.active_cell_entry is entry:
+                self.active_cell_entry = None
+            try:
+                entry.destroy()
+            except Exception:
+                pass
             
         entry.bind("<Return>", save_cell_edit)
         entry.bind("<FocusOut>", save_cell_edit)
