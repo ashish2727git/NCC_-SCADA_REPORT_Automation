@@ -395,8 +395,8 @@ def check_update():
     
     # Fallback to hardcoded version for backward compatibility or safety
     return {
-        "latest_version": "14.8",
-        "download_url": "/download/Ashish_Kumar_NexusSyncPro_v14.8.exe"
+        "latest_version": "14.9",
+        "download_url": "/download/Ashish_Kumar_NexusSyncPro_v14.9.exe"
     }
 
 @app.post("/api/admin/publish_version")
