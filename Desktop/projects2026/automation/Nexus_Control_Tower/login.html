@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus Control Tower - Login</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #0b0f19;
+      --card-bg: #111827;
+      --border-color: #1f2937;
+      --text-main: #f3f4f6;
+      --text-dim: #9ca3af;
+      --accent: #0ea5e9;
+      --accent-hover: #0284c7;
+      --error: #ef4444;
+      --success: #10b981;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Animated background elements */
+    .bg-glow {
+      position: absolute;
+      width: 500px;
+      height: 500px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(14, 165, 233, 0.15) 0%, rgba(14, 165, 233, 0) 70%);
+      top: -100px;
+      right: -100px;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .bg-glow-2 {
+      position: absolute;
+      width: 600px;
+      height: 600px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(16, 185, 129, 0.08) 0%, rgba(16, 185, 129, 0) 70%);
+      bottom: -150px;
+      left: -150px;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 420px;
+      padding: 20px;
+      z-index: 10;
+    }
+
+    .login-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 40px 32px;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(10px);
+      text-align: center;
+      transition: border-color 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .login-card:hover {
+      border-color: rgba(14, 165, 233, 0.4);
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.4), 0 0 30px rgba(14, 165, 233, 0.1);
+    }
+
+    .logo-area {
+      margin-bottom: 32px;
+    }
+
+    .logo-icon {
+      font-size: 40px;
+      margin-bottom: 12px;
+      display: inline-block;
+      animation: pulse 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.05); opacity: 0.85; }
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: var(--text-main);
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: var(--text-dim);
+    }
+
+    .form-group {
+      margin-bottom: 24px;
+      text-align: left;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+
+    .input-wrapper {
+      position: relative;
+    }
+
+    input[type="password"] {
+      width: 100%;
+      padding: 14px 16px;
+      background-color: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: var(--text-main);
+      font-family: inherit;
+      font-size: 15px;
+      transition: all 0.2s ease;
+      outline: none;
+    }
+
+    input[type="password"]:focus {
+      border-color: var(--accent);
+      background-color: rgba(15, 23, 42, 0.9);
+      box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2);
+    }
+
+    .btn-login {
+      width: 100%;
+      padding: 14px;
+      background-color: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-login:hover {
+      background-color: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+
+    .btn-login:active {
+      transform: translateY(0);
+    }
+
+    .btn-login:disabled {
+      background-color: #374151;
+      color: #9ca3af;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .error-msg {
+      background-color: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: var(--error);
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      margin-bottom: 20px;
+      display: none;
+      text-align: left;
+    }
+
+    .footer {
+      margin-top: 32px;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-glow"></div>
+  <div class="bg-glow-2"></div>
+
+  <div class="login-container">
+    <div class="login-card">
+      <div class="logo-area">
+        <span class="logo-icon">📡</span>
+        <h1>Control Tower</h1>
+        <p class="subtitle">Nexus Sync Enterprise Management</p>
+      </div>
+
+      <div class="error-msg" id="errorBlock">
+        ⚠️ <span id="errorText">Invalid password. Please try again.</span>
+      </div>
+
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label for="password">Admin Security Key</label>
+          <div class="input-wrapper">
+            <input type="password" id="password" placeholder="••••••••••••••••" required autocomplete="current-password">
+          </div>
+        </div>
+
+        <button type="submit" class="btn-login" id="submitBtn">
+          <span>Authorize Access</span>
+        </button>
+      </form>
+
+      <div class="footer">
+        &copy; 2026 NexusSyncPro Enterprise. All rights reserved.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function handleLogin(event) {
+      event.preventDefault();
+      const passwordInput = document.getElementById("password");
+      const submitBtn = document.getElementById("submitBtn");
+      const errorBlock = document.getElementById("errorBlock");
+      const errorText = document.getElementById("errorText");
+
+      const password = passwordInput.value;
+      if (!password) return;
+
+      // Disable button and show loading state
+      submitBtn.disabled = true;
+      submitBtn.innerText = "Verifying...";
+      errorBlock.style.display = "none";
+
+      try {
+        const response = await fetch("/api/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ password })
+        });
+
+        if (response.ok) {
+          // Success! Redirect to dashboard
+          window.location.href = "/admin";
+        } else {
+          const data = await response.json();
+          errorText.innerText = data.detail || "Authentication failed.";
+          errorBlock.style.display = "block";
+          passwordInput.value = "";
+          passwordInput.focus();
+        }
+      } catch (err) {
+        errorText.innerText = "Server connection error. Please try again.";
+        errorBlock.style.display = "block";
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = "Authorize Access";
+      }
+    }
+  </script>
+</body>
+</html>

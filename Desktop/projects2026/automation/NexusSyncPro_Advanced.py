@@ -48,7 +48,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "14.9"
+CLIENT_VERSION = "15.0"
 PORTAL_URL = "http://122.186.209.30:8068/NCC/Sitapur/Sign-In-Users.php"
 CONFIG_FILE = os.path.join(_BASE_DIR, "nexus_config.json")
 
@@ -336,9 +336,6 @@ class NexusSyncPro(ctk.CTk):
             self.safe_log_update(f"[SYS] Existing files detected in today's folder — reusing workspace.")
         
         self._register_startup()
-        
-        if self.service_active.get() and self.token_var.get().strip():
-            self.start_bot()
         
         threading.Thread(target=self.run_scheduler, daemon=True).start()
         threading.Thread(target=self.startup_check, daemon=True).start()
@@ -713,6 +710,26 @@ class NexusSyncPro(ctk.CTk):
                                 progress_callback("error", "Invalid PE executable magic bytes")
                             return
                         
+                        # Validate SHA-256 if provided by server
+                        server_sha = data.get("sha256", "")
+                        if server_sha:
+                            import hashlib
+                            sha256_hash = hashlib.sha256()
+                            with open(new_file, "rb") as f_hash:
+                                for byte_block in iter(lambda: f_hash.read(4096), b""):
+                                    sha256_hash.update(byte_block)
+                            calc_sha = sha256_hash.hexdigest()
+                            if calc_sha.lower() != server_sha.lower():
+                                self.safe_log_update(f"[OTA] ⚠️ Checksum mismatch! Expected: {server_sha}, Got: {calc_sha}")
+                                try:
+                                    os.remove(new_file)
+                                except: pass
+                                if progress_callback:
+                                    progress_callback("error", "Checksum verification failed")
+                                return
+                            else:
+                                self.safe_log_update("[OTA] SHA-256 Checksum verified successfully.")
+                        
                         self._update_pending_path = new_file
                         self.safe_log_update(f"[OTA] Update v{latest_ver} downloaded successfully ({downloaded_size//1024//1024} MB). Ready to install.")
                         self.after(0, self._show_update_banner)
@@ -1007,9 +1024,9 @@ del "%~f0"
                                      text_color=CLR_TEXT, font=("Segoe UI", 13, "bold"), height=40, command=self.manual_change_workspace)
         self.ws_btn.pack(fill="x", pady=5)
 
-        self.chrome_btn = ctk.CTkButton(ctrl_frame, text="🌐 OPEN WHATSAPP CHROME", fg_color="transparent", border_width=1, border_color="#f43f5e",
-                                     text_color="#f43f5e", font=("Segoe UI", 13, "bold"), height=40, command=self.manual_open_chrome_profile)
-        self.chrome_btn.pack(fill="x", pady=5)
+        # Hidden Chrome Button: Personal WhatsApp access protected.
+        # Trigger manually using double-click on version/dev credits in sidebar OR Ctrl+Shift+W shortcut.
+
 
         ctk.CTkFrame(self.sidebar_scroll, fg_color=CLR_BORDER, height=2).pack(fill="x", padx=30, pady=20)
 
@@ -1080,16 +1097,26 @@ del "%~f0"
             command=self._restart_app
         ).pack(side="right")
 
-        # ── DEVELOPER CREDIT ──
-        ctk.CTkLabel(self.sidebar, text="DEVELOPED BY: ASHISH KUMAR", font=("Segoe UI", 9, "italic"), text_color=CLR_DIM).pack(side="bottom", pady=(10, 4))
-        ctk.CTkLabel(self.sidebar, text=f"v{CLIENT_VERSION} • Enterprise Suite", font=("Segoe UI", 9), text_color=CLR_DIM).pack(side="bottom", pady=(0, 0))
+        # ── DEVELOPER CREDIT (Double-Click Secret Shortcut to Open WhatsApp Chrome) ──
+        dev_lbl = ctk.CTkLabel(self.sidebar, text="DEVELOPED BY: ASHISH KUMAR", font=("Segoe UI", 9, "italic"), text_color=CLR_DIM)
+        dev_lbl.pack(side="bottom", pady=(10, 4))
+        dev_lbl.bind("<Double-Button-1>", lambda e: self.manual_open_chrome_profile())
+
+        ver_lbl = ctk.CTkLabel(self.sidebar, text=f"v{CLIENT_VERSION} • Enterprise Suite", font=("Segoe UI", 9), text_color=CLR_DIM)
+        ver_lbl.pack(side="bottom", pady=(0, 0))
+        ver_lbl.bind("<Double-Button-1>", lambda e: self.manual_open_chrome_profile())
+
+        # Global Keyboard Shortcut: Ctrl + Shift + W to open WhatsApp Chrome
+        self.bind_all("<Control-Shift-W>", lambda e: self.manual_open_chrome_profile())
+
 
         # --- MAIN TABVIEW ---
         self.main_tabs = ctk.CTkTabview(self, fg_color="transparent")
         self.main_tabs.pack(side="right", fill="both", expand=True, padx=20, pady=20)
         
         self.tab_dash = self.main_tabs.add("📊 SCADA DASHBOARD")
-        self.tab_bot = self.main_tabs.add("🤖 TELEGRAM BOT")
+        self.tab_history = self.main_tabs.add("📂 HISTORICAL VIEWER")
+
         
         # --- DASHBOARD TAB ---
         self.display = ctk.CTkScrollableFrame(self.tab_dash, fg_color="transparent")
@@ -1115,43 +1142,39 @@ del "%~f0"
         self.history_terminal = ctk.CTkTextbox(self.history_container, fg_color="#f3f4f6", text_color=CLR_CYAN, font=("Consolas", 11))
         self.history_terminal.pack(fill="both", expand=True, padx=10, pady=10)
 
+        # Bottom Split Frame (Metrics & WhatsApp)
+        self.bottom_split = ctk.CTkFrame(self.display, fg_color="transparent")
+        self.bottom_split.pack(fill="both", expand=True)
+
+        # Left side: Metrics wrapper container
+        self.metrics_wrapper = ctk.CTkFrame(self.bottom_split, fg_color="transparent")
+        self.metrics_wrapper.pack(side="left", fill="both", expand=True, padx=(0, 10))
+
         # Middle Metrics Frame (JJM) - Row 1
-        self.metrics_container = ctk.CTkFrame(self.display, fg_color="transparent")
-        self.metrics_container.pack(fill="x", pady=(0, 5))
+        self.metrics_container = ctk.CTkFrame(self.metrics_wrapper, fg_color="transparent")
+        self.metrics_container.pack(fill="x", pady=(0, 10))
         
         self.jjm_total_lbl = self._create_metric_card(self.metrics_container, "TOTAL JJM SCHEMES", "0", CLR_CYAN, command=lambda e: self.show_list_popup("JJM TOTAL", self.jjm_list_data.get("total", [])))
         self.jjm_live_lbl = self._create_metric_card(self.metrics_container, "LIVE CONNECTED", "0", CLR_GREEN, command=lambda e: self.show_list_popup("JJM LIVE CONNECTED", self.jjm_list_data.get("live", [])))
         self.jjm_not_recv_lbl = self._create_metric_card(self.metrics_container, "DATA NOT RECEIVED", "0", CLR_GOLD, command=lambda e: self.show_list_popup("JJM NOT RECEIVED", self.jjm_list_data.get("not_recv", [])))
 
         # Middle Metrics Frame (JJM) - Row 2
-        self.metrics_container_2 = ctk.CTkFrame(self.display, fg_color="transparent")
-        self.metrics_container_2.pack(fill="x", pady=(0, 15))
+        self.metrics_container_2 = ctk.CTkFrame(self.metrics_wrapper, fg_color="transparent")
+        self.metrics_container_2.pack(fill="x", pady=(0, 10))
         
         self.jjm_leftover_lbl = self._create_metric_card(self.metrics_container_2, "OFF-GRID / MISSING", "0", "#ff4d4d", command=lambda e: self.show_list_popup("JJM OFF-GRID / MISSING", self.jjm_list_data.get("leftover", [])))
         self.jjm_new_lbl = self._create_metric_card(self.metrics_container_2, "NEWLY ADDED IN JJM", "0", "#ff4d4d", command=lambda e: self.show_list_popup("JJM NEWLY ADDED", self.jjm_list_data.get("new", [])))
 
         # SCADA Metrics Frame
-        self.scada_metrics_container = ctk.CTkFrame(self.display, fg_color="transparent")
-        self.scada_metrics_container.pack(fill="x", pady=(0, 15))
+        self.scada_metrics_container = ctk.CTkFrame(self.metrics_wrapper, fg_color="transparent")
+        self.scada_metrics_container.pack(fill="x", pady=(0, 10))
         
         self.scada_total_lbl = self._create_metric_card(self.scada_metrics_container, "SCADA TOTAL (EXCEL)", "0", CLR_CYAN, command=lambda e: self.show_list_popup("SCADA TOTAL SCHEMES", self.scada_data.get("total", [])))
         self.scada_sync_lbl = self._create_metric_card(self.scada_metrics_container, "NOW SCADA SYNCED", "0", CLR_GREEN, command=lambda e: self.show_list_popup("SCADA SYNCED SCHEMES", self.scada_data.get("synced", [])))
         self.scada_unsync_lbl = self._create_metric_card(self.scada_metrics_container, "NOT YET SYNCED", "0", CLR_GOLD, command=lambda e: self.show_list_popup("SCADA NOT SYNCED", self.scada_data.get("not_synced", [])))
         self.scada_new_lbl = self._create_metric_card(self.scada_metrics_container, "NEWLY ADDED IN SCADA", "0", "#ff4d4d", command=lambda e: self.show_list_popup("SCADA NEWLY ADDED", self.scada_data.get("new", [])))
 
-        # Bottom Split Frame (Reports & WhatsApp)
-        self.bottom_split = ctk.CTkFrame(self.display, fg_color="transparent")
-        self.bottom_split.pack(fill="both", expand=True)
-
-        # 3. Data Analysis Report
-        self.report_container = ctk.CTkFrame(self.bottom_split, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER, height=350)
-        self.report_container.pack(side="left", fill="both", expand=True, padx=(0, 10))
-        self.report_container.pack_propagate(False)
-        ctk.CTkLabel(self.report_container, text="📊 DATA ANALYSIS REPORT", font=("Segoe UI", 11, "bold"), text_color=CLR_GOLD).pack(anchor="w", padx=15, pady=5)
-        self.report_terminal = ctk.CTkTextbox(self.report_container, fg_color="#f3f4f6", text_color=CLR_TEXT, font=("Consolas", 12))
-        self.report_terminal.pack(fill="both", expand=True, padx=10, pady=10)
-
-        # 4. WhatsApp Preview Terminal
+        # 4. WhatsApp Preview Terminal (Right side of bottom split)
         self.preview_container = ctk.CTkFrame(self.bottom_split, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER, height=350)
         self.preview_container.pack(side="right", fill="both", expand=True, padx=(10, 0))
         self.preview_container.pack_propagate(False)
@@ -1159,8 +1182,10 @@ del "%~f0"
         self.preview_terminal = ctk.CTkTextbox(self.preview_container, fg_color="#f3f4f6", text_color=CLR_TEXT, font=("Segoe UI", 12))
         self.preview_terminal.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # --- TELEGRAM BOT TAB ---
-        self.setup_telegram_ui()
+
+        # --- HISTORICAL VIEWER TAB ---
+        self.setup_history_ui()
+
 
     def _load_creds(self):
         import json
@@ -1186,217 +1211,205 @@ del "%~f0"
         with open(CRED_FILE, "w") as f:
             json.dump({"tg_token": self.token_var.get().strip()}, f)
 
-    def setup_telegram_ui(self):
-        # Bot Control Panel
-        bot_ctrl = ctk.CTkFrame(self.tab_bot, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
-        bot_ctrl.pack(fill="x", padx=10, pady=10)
-
-        ctk.CTkLabel(bot_ctrl, text="Bot Token  (from @BotFather)", font=("Segoe UI", 11, "bold"), text_color=CLR_DIM).pack(anchor="w", padx=15, pady=(15,0))
-        self.token_entry = ctk.CTkEntry(bot_ctrl, textvariable=self.token_var, placeholder_text="123456:ABCdef...", height=38, fg_color=CLR_BG, border_color=CLR_BORDER, show="*")
-        self.token_entry.pack(fill="x", padx=15, pady=(5, 15))
-
-        btn_frm = ctk.CTkFrame(bot_ctrl, fg_color="transparent")
-        btn_frm.pack(fill="x", padx=15, pady=(0, 15))
-
-        self.start_bot_btn = ctk.CTkButton(btn_frm, text="▶ START TELEGRAM BOT", height=42, fg_color=CLR_GREEN, hover_color="#059669", font=("Segoe UI", 13, "bold"), command=self.start_bot)
-        self.start_bot_btn.pack(side="left", expand=True, fill="x", padx=(0, 5))
-
-        self.stop_bot_btn = ctk.CTkButton(btn_frm, text="■ STOP BOT", height=42, fg_color="#ff4d4d", hover_color="#cc0000", font=("Segoe UI", 13, "bold"), command=self.stop_bot, state="disabled")
-        self.stop_bot_btn.pack(side="left", expand=True, fill="x", padx=(5, 0))
-
-        self.bot_status_lbl = ctk.CTkLabel(bot_ctrl, text="● OFFLINE", font=("Segoe UI", 12, "bold"), text_color="#ff4d4d")
-        self.bot_status_lbl.pack(pady=(0, 15))
-
-        # Bot Terminal
-        bot_term_frm = ctk.CTkFrame(self.tab_bot, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
-        bot_term_frm.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+    def setup_history_ui(self):
+        # 📂 HISTORICAL VIEWER Tab controls
+        controls_frame = ctk.CTkFrame(self.tab_history, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
+        controls_frame.pack(fill="x", padx=15, pady=15)
         
-        ctk.CTkLabel(bot_term_frm, text="📡 BOT COMMUNICATION LOGS", font=("Segoe UI", 12, "bold"), text_color=CLR_CYAN).pack(anchor="w", padx=15, pady=5)
-        self.bot_terminal = ctk.CTkTextbox(bot_term_frm, fg_color="#f3f4f6", text_color=CLR_TEXT, font=("Consolas", 12))
-        self.bot_terminal.pack(fill="both", expand=True, padx=10, pady=10)
+        ctk.CTkLabel(controls_frame, text="Select Report Date:", font=("Segoe UI", 12, "bold"), text_color=CLR_TEXT).pack(side="left", padx=15, pady=15)
+        
+        self.selected_date_var = tk.StringVar()
+        self.date_dropdown = ctk.CTkOptionMenu(controls_frame, variable=self.selected_date_var, values=["No reports found"], command=self.load_historical_file)
+        self.date_dropdown.pack(side="left", padx=10, pady=15)
+        
+        self.refresh_dates_btn = ctk.CTkButton(controls_frame, text="🔄 Refresh List", width=100, fg_color="transparent", border_width=1, border_color=CLR_BORDER, text_color=CLR_TEXT, command=self.refresh_historical_dates)
+        self.refresh_dates_btn.pack(side="left", padx=5, pady=15)
+        
+        self.save_edit_btn = ctk.CTkButton(controls_frame, text="💾 Save Changes", fg_color=CLR_GREEN, hover_color="#059669", text_color="#ffffff", command=self.save_historical_changes, state="disabled")
+        self.save_edit_btn.pack(side="right", padx=15, pady=15)
+        
+        # Grid View Frame
+        self.grid_frame = ctk.CTkFrame(self.tab_history, fg_color="transparent")
+        self.grid_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        
+        self.history_tree = None
+        self.loaded_df = None
+        self.loaded_filepath = None
+        
+        self.refresh_historical_dates()
 
-    def log_bot(self, msg):
-        ts = datetime.now().strftime("%H:%M:%S")
-        self.after(0, lambda: self._log_bot_gui(f"[{ts}] {msg}"))
-
-    def _log_bot_gui(self, text):
-        self.bot_terminal.insert("end", f"{text}\n")
-        self.bot_terminal.see("end")
-
-    # ─── BOT LOGIC ───
-    def start_bot(self):
-        tok = self.token_var.get().strip()
-        if not tok:
-            self.log_bot("❌ Error: No token provided.")
+    def refresh_historical_dates(self):
+        if not hasattr(self, 'watch_folder') or not os.path.exists(self.watch_folder):
             return
-        self._save_creds()
-        self.start_bot_btn.configure(state="disabled")
-        self.token_entry.configure(state="disabled")
-        self.stop_bot_btn.configure(state="normal")
-        self.bot_status_lbl.configure(text="● ONLINE", text_color=CLR_GREEN)
-        self.bot_running = True
-        self.bot_thread = threading.Thread(target=self._poll_tg, args=(tok,), daemon=True)
-        self.bot_thread.start()
+        files = glob.glob(os.path.join(self.watch_folder, 'Final_Daily_Report_*.xlsx'))
+        dates = []
+        self.history_file_map = {}
+        for f in files:
+            basename = os.path.basename(f)
+            match = re.search(r'Final_Daily_Report_(.*?)\.xlsx', basename)
+            if match:
+                date_str = match.group(1)
+                dates.append(date_str)
+                self.history_file_map[date_str] = f
+                
+        def parse_date(d):
+            try:
+                return datetime.strptime(d, "%d-%m-%Y")
+            except:
+                return datetime.min
+        dates.sort(key=parse_date, reverse=True)
+        
+        if dates:
+            self.date_dropdown.configure(values=dates)
+            if not self.selected_date_var.get() or self.selected_date_var.get() not in dates:
+                self.selected_date_var.set(dates[0])
+                self.load_historical_file(dates[0])
+        else:
+            self.date_dropdown.configure(values=["No reports found"])
+            self.selected_date_var.set("No reports found")
 
-    def stop_bot(self):
-        self.bot_running = False
-        self.start_bot_btn.configure(state="normal")
-        self.token_entry.configure(state="normal")
-        self.stop_bot_btn.configure(state="disabled")
-        self.bot_status_lbl.configure(text="● OFFLINE", text_color="#ff4d4d")
-        self.log_bot("[BOT] Stopped.")
+    def load_historical_file(self, date_str):
+        filepath = getattr(self, 'history_file_map', {}).get(date_str)
+        if not filepath or not os.path.exists(filepath):
+            return
+        
+        try:
+            self.loaded_filepath = filepath
+            self.loaded_df = pd.read_excel(filepath)
+            if self.loaded_df.empty:
+                return
+                
+            for child in self.grid_frame.winfo_children():
+                child.destroy()
+                
+            import tkinter.ttk as ttk
+            style = ttk.Style()
+            style.theme_use('clam')
+            style.configure("Nexus.Treeview",
+                            background="#1e293b",
+                            foreground="#f1f5f9",
+                            rowheight=28,
+                            fieldbackground="#1e293b",
+                            gridcolor="#334155",
+                            font=("Segoe UI", 10))
+            style.map("Nexus.Treeview",
+                      background=[('selected', '#0ea5e9')],
+                      foreground=[('selected', '#0f172a')])
+            style.configure("Nexus.Treeview.Heading",
+                            background="#0f172a",
+                            foreground="#0ea5e9",
+                            font=("Segoe UI", 10, "bold"),
+                            borderwidth=1,
+                            bordercolor="#334155")
+            
+            cols = ["sr_no"] + list(self.loaded_df.columns)
+            self.grid_frame.rowconfigure(0, weight=1)
+            self.grid_frame.columnconfigure(0, weight=1)
+            
+            self.history_tree = ttk.Treeview(self.grid_frame, columns=cols, show="headings", style="Nexus.Treeview")
+            self.history_tree.grid(row=0, column=0, sticky="nsew")
+            
+            self.history_tree.heading("sr_no", text="Sr. No.", command=lambda: self.sort_history_column("sr_no", False))
+            self.history_tree.column("sr_no", width=60, minwidth=60, anchor="center")
+            
+            for col in self.loaded_df.columns:
+                self.history_tree.heading(col, text=str(col), command=lambda c=col: self.sort_history_column(c, False))
+                self.history_tree.column(col, width=150, minwidth=100, anchor="w")
+                
+            v_scroll = ctk.CTkScrollbar(self.grid_frame, orientation="vertical", command=self.history_tree.yview)
+            v_scroll.grid(row=0, column=1, sticky="ns")
+            
+            h_scroll = ctk.CTkScrollbar(self.grid_frame, orientation="horizontal", command=self.history_tree.xview)
+            h_scroll.grid(row=1, column=0, sticky="ew")
+            
+            self.history_tree.configure(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
+            
+            for idx, row in enumerate(self.loaded_df.values, 1):
+                vals = [idx] + ["" if pd.isna(x) else str(x) for x in row]
+                self.history_tree.insert("", "end", values=vals)
+                
+            self.history_tree.bind("<Double-1>", self.on_history_cell_double_click)
+            self.save_edit_btn.configure(state="normal")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load daily report:\n{e}")
+
+    def on_history_cell_double_click(self, event):
+        region = self.history_tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+            
+        column_id = self.history_tree.identify_column(event.x)
+        item_id = self.history_tree.identify_row(event.y)
+        if not item_id or not column_id:
+            return
+            
+        col_idx = int(column_id.replace("#", "")) - 1
+        if col_idx == 0:
+            return
+            
+        x, y, w, h = self.history_tree.bbox(item_id, column_id)
+        entry = ctk.CTkEntry(self.history_tree, width=w, height=h, font=("Segoe UI", 10), fg_color="#f3f4f6", text_color=CLR_TEXT, border_width=1, border_color=CLR_CYAN)
+        current_val = self.history_tree.item(item_id, "values")[col_idx]
+        entry.insert(0, current_val)
+        entry.place(x=x, y=y)
+        entry.focus()
+        
+        def save_cell_edit(event=None):
+            new_val = entry.get().strip()
+            vals = list(self.history_tree.item(item_id, "values"))
+            vals[col_idx] = new_val
+            self.history_tree.item(item_id, values=vals)
+            
+            all_items = self.history_tree.get_children("")
+            row_idx = all_items.index(item_id)
+            self.loaded_df.iat[row_idx, col_idx - 1] = new_val
+            entry.destroy()
+            
+        def cancel_cell_edit(event=None):
+            entry.destroy()
+            
+        entry.bind("<Return>", save_cell_edit)
+        entry.bind("<FocusOut>", save_cell_edit)
+        entry.bind("<Escape>", cancel_cell_edit)
+
+    def save_historical_changes(self):
+        if self.loaded_df is None or not self.loaded_filepath:
+            return
+        try:
+            self.loaded_df.to_excel(self.loaded_filepath, index=False)
+            messagebox.showinfo("Success", f"Changes successfully saved to:\n{os.path.basename(self.loaded_filepath)}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save changes: {e}")
+
+    def sort_history_column(self, col, reverse):
+        if not self.history_tree:
+            return
+        l = [(self.history_tree.set(k, col), k) for k in self.history_tree.get_children("")]
+        if col == "sr_no":
+            try:
+                l.sort(key=lambda t: int(t[0]), reverse=reverse)
+            except:
+                l.sort(key=lambda t: t[0], reverse=reverse)
+        else:
+            def try_numeric(val):
+                try:
+                    return float(val)
+                except ValueError:
+                    return val.lower()
+            l.sort(key=lambda t: try_numeric(t[0]), reverse=reverse)
+            
+        for index, (val, k) in enumerate(l):
+            self.history_tree.move(k, "", index)
+            self.history_tree.set(k, "sr_no", index + 1)
+            
+        self.history_tree.heading(col, command=lambda: self.sort_history_column(col, not reverse))
 
     def on_autopilot_toggle(self):
         if self.service_active.get():
             self.safe_log_update("[SYS] Auto-Pilot enabled.")
-            if not self.bot_running and self.token_var.get().strip():
-                self.start_bot()
         else:
             self.safe_log_update("[SYS] Auto-Pilot disabled.")
-            if self.bot_running:
-                self.stop_bot()
 
-    def _poll_tg(self, tok):
-        self.log_bot("🔄 Connecting to Telegram API...")
-        try:
-            r = requests.get(f"{TG_BASE}{tok}/getMe", timeout=10)
-            if r.status_code == 200:
-                bn = r.json().get("result", {}).get("username", "Bot")
-                self.log_bot(f"✅ Connected to @{bn}")
-            else:
-                self.log_bot(f"❌ Token rejected. Code: {r.status_code}")
-                self.after(0, self.stop_bot)
-                return
-        except Exception as e:
-            self.log_bot(f"❌ Connection error: {e}")
-            self.after(0, self.stop_bot)
-            return
-
-        self.log_bot("📡 Listening for messages...")
-        while self.bot_running:
-            try:
-                url = f"{TG_BASE}{tok}/getUpdates?offset={self.last_update_id}&timeout=20"
-                resp = requests.get(url, timeout=25)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if data.get("ok"):
-                        updates = data.get("result", [])
-                        for u in updates:
-                            self.last_update_id = u["update_id"] + 1
-                            if "message" in u and "text" in u["message"]:
-                                text = u["message"]["text"].strip()
-                                chat_id = u["message"]["chat"]["id"]
-                                sender = u["message"]["from"].get("first_name", "User")
-                                self.log_bot(f"📩 [{sender}]: {text}")
-                                reply = self._build_bot_reply(text)
-                                if reply:
-                                    self._send_bot_msg(tok, chat_id, reply)
-            except Exception as e:
-                pass
-            time.sleep(1)
-
-    def _send_bot_msg(self, tok, chat_id, text):
-        try:
-            r = requests.post(f"{TG_BASE}{tok}/sendMessage", json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"}, timeout=15)
-            if r.status_code == 200:
-                self.log_bot(f"📤 Reply sent.")
-            else:
-                self.log_bot(f"❌ Failed to send reply: {r.text}")
-        except Exception as e:
-            self.log_bot(f"❌ Send error: {e}")
-
-    def _build_bot_reply(self, text):
-        cmd = text.upper()
-        h = datetime.now().hour
-        greet = "Good Evening" if h >= 16 else ("Good Afternoon" if h >= 12 else "Good Morning")
-
-        if cmd in ["HI", "HELLO", "MENU", "STATUS", "HELP", "START", "GET DATA", "/START"]:
-            return (
-                f"{greet}! 👋\n"
-                f"Welcome to <b>Nexus Sync — JJM Sitapur</b>\n"
-                f"Automated service by <b>Ashish Kumar</b>\n\n"
-                f"🤖 <b>Reply with a Number:</b>\n\n"
-                f"<b>1</b> — 📊 Full Status Summary scada and jjm\n"
-                f"<b>2</b> — ✅ Live Connected List in jjm\n"
-                f"<b>3</b> — ⚠️ Not Connected List in jjm\n"
-                f"<b>4</b> — 🚨 Off-Grid Schemes in jjm\n"
-                f"<b>5</b> — ⭐ Newly Added Schemes in scada\n"
-                f"<b>6</b> — 🌟 Newly Added Schemes in jjm\n\n"
-                f"<i>Data fetched live from server</i> ✅"
-            )
-
-        if cmd == "1":
-            self.log_bot("[BOT] Building SCADA + JJM summary...")
-            if not self.scada_data or not self.jjm_list_data:
-                return "❌ No live data found on server yet. Please Pull New Data."
-            
-            j_tot = self.jjm_total_lbl.cget("text")
-            j_liv = self.jjm_live_lbl.cget("text")
-            j_nr = self.jjm_not_recv_lbl.cget("text")
-            j_miss = self.jjm_leftover_lbl.cget("text")
-            j_new = self.jjm_new_lbl.cget("text")
-            
-            s_tot = self.scada_total_lbl.cget("text")
-            s_sync = self.scada_sync_lbl.cget("text")
-            s_unsync = self.scada_unsync_lbl.cget("text")
-            s_new = self.scada_new_lbl.cget("text")
-            
-            return (
-                f"📈 <b>FULL DAILY STATUS REPORT</b>\n"
-                f"📅 {datetime.now().strftime('%d-%m-%Y %I:%M %p')}\n\n"
-                f"🔵 <b>JJM PORTAL</b>\n"
-                f"  Total Integrated : {j_tot}\n"
-                f"  Live Connected   : {j_liv}\n"
-                f"  Not Receiving    : {j_nr}\n"
-                f"  Off-Grid/Missing : {j_miss}\n"
-                f"  Newly Added      : {j_new}\n\n"
-                f"🟢 <b>SCADA</b>\n"
-                f"  Total Schemes : {s_tot}\n"
-                f"  Synced Today  : {s_sync}\n"
-                f"  Not Synced    : {s_unsync}\n"
-                f"  Newly Added   : {s_new}"
-            )
-
-        if cmd == "2":
-            self.log_bot("[BOT] Fetching live connected schemes...")
-            lst = self.jjm_list_data.get("live", [])
-            if not lst or (isinstance(lst, list) and lst[0].startswith("Detailed")):
-                return "❌ Live Connected list not yet fetched from portal."
-            lines = "\n".join(f"{i+1}. {x}" for i, x in enumerate(lst))
-            return f"✅ <b>LIVE CONNECTED (Count: {len(lst)})</b>\n{lines}"
-
-        if cmd == "3":
-            self.log_bot("[BOT] Fetching not connected schemes...")
-            lst = self.jjm_list_data.get("not_recv", [])
-            if not lst or (isinstance(lst, list) and lst[0].startswith("Detailed")):
-                return "❌ Not Receiving list not yet fetched from portal."
-            lines = "\n".join(f"{i+1}. {x}" for i, x in enumerate(lst))
-            return f"⚠️ <b>NOT CONNECTED (Count: {len(lst)})</b>\n{lines}"
-
-        if cmd == "4":
-            self.log_bot("[BOT] Fetching off-grid schemes...")
-            lst = self.jjm_list_data.get("leftover", [])
-            if not lst or (isinstance(lst, list) and lst[0].startswith("Detailed")):
-                return "❌ Off-Grid list not yet computed from portal."
-            lines = "\n".join(f"{i+1}. {x}" for i, x in enumerate(lst))
-            return f"🚨 <b>OFF-GRID / MISSING (Count: {len(lst)})</b>\n{lines}"
-
-        if cmd == "5":
-            self.log_bot("[BOT] Fetching newly added SCADA schemes...")
-            n = self.scada_data.get("new", [])
-            if n:
-                lines = "\n".join(f"{i+1}. {x}" for i, x in enumerate(n))
-                return f"⭐ <b>NEWLY ADDED (Count: {len(n)})</b>\n{lines}"
-            return "⭐ No new schemes added today yet."
-
-        if cmd == "6":
-            self.log_bot("[BOT] Fetching newly added JJM schemes...")
-            n = self.jjm_list_data.get("new", [])
-            if n:
-                lines = "\n".join(f"{i+1}. {x}" for i, x in enumerate(n))
-                return f"🌟 <b>NEWLY ADDED IN JJM (Count: {len(n)})</b>\n{lines}"
-            return "🌟 No new schemes added in JJM today yet."
-        return None
 
     def _create_metric_card(self, parent, title, val, color, command=None):
         card = ctk.CTkFrame(parent, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER, height=85)
@@ -1473,10 +1486,38 @@ del "%~f0"
         cols = ("sr_no", "name", "timestamp")
         tree = ttk.Treeview(table_frame, columns=cols, show="headings", style="Nexus.Treeview")
         
+        # Define sorting logic
+        def sort_column(col, reverse):
+            l = [(tree.set(k, col), k) for k in tree.get_children("")]
+            if col == "sr_no":
+                try:
+                    l.sort(key=lambda t: int(t[0]), reverse=reverse)
+                except ValueError:
+                    l.sort(key=lambda t: t[0], reverse=reverse)
+            elif col == "timestamp":
+                def parse_dt(val):
+                    if val == "No recent data" or not val:
+                        return datetime.min
+                    for fmt in ("%d-%m-%Y %H:%M:%S", "%d-%m-%Y %I:%M %p", "%d-%m-%Y %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                        try:
+                            return datetime.strptime(val, fmt)
+                        except ValueError:
+                            pass
+                    return datetime.min
+                l.sort(key=lambda t: parse_dt(t[0]), reverse=reverse)
+            else:
+                l.sort(key=lambda t: t[0].lower(), reverse=reverse)
+
+            for index, (val, k) in enumerate(l):
+                tree.move(k, "", index)
+                tree.set(k, "sr_no", index + 1)
+                
+            tree.heading(col, command=lambda: sort_column(col, not reverse))
+
         # Define headings
-        tree.heading("sr_no", text="Sr. No.")
-        tree.heading("name", text="Scheme / Gram Panchayat Name")
-        tree.heading("timestamp", text="Last Data Receive Date")
+        tree.heading("sr_no", text="Sr. No.", command=lambda: sort_column("sr_no", False))
+        tree.heading("name", text="Scheme / Gram Panchayat Name", command=lambda: sort_column("name", False))
+        tree.heading("timestamp", text="Last Data Receive Date", command=lambda: sort_column("timestamp", False))
         
         # Define columns layout
         tree.column("sr_no", width=60, minwidth=60, anchor="center")
@@ -1519,6 +1560,50 @@ del "%~f0"
         update_list()
         search_entry.focus()
 
+        # Add Action Buttons Frame at the bottom
+        btn_frame = ctk.CTkFrame(popup, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=15, pady=(0, 15))
+        
+        def copy_data():
+            lines = ["Sr. No.\tScheme / Gram Panchayat Name\tLast Data Receive Date"]
+            for k in tree.get_children(""):
+                vals = tree.item(k, "values")
+                lines.append(f"{vals[0]}\t{vals[1]}\t{vals[2]}")
+            data_str = "\n".join(lines)
+            popup.clipboard_clear()
+            popup.clipboard_append(data_str)
+            messagebox.showinfo("Success", "Table data copied to clipboard!", parent=popup)
+
+        def download_data():
+            filepath = filedialog.asksaveasfilename(
+                parent=popup,
+                title="Export Table Data",
+                defaultextension=".csv",
+                filetypes=[("CSV Files", "*.csv"), ("Text Files", "*.txt")],
+                initialfile=f"{title.replace(' ', '_')}_export.csv"
+            )
+            if filepath:
+                try:
+                    import csv
+                    with open(filepath, "w", newline="", encoding="utf-8") as f:
+                        writer = csv.writer(f)
+                        writer.writerow(["Sr. No.", "Scheme / Gram Panchayat Name", "Last Data Receive Date"])
+                        for k in tree.get_children(""):
+                            writer.writerow(tree.item(k, "values"))
+                    messagebox.showinfo("Success", f"Data exported successfully to:\n{filepath}", parent=popup)
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to export data: {e}", parent=popup)
+
+        copy_btn = ctk.CTkButton(btn_frame, text="📋 Copy Table", width=120, height=36, font=("Segoe UI", 12, "bold"), fg_color=CLR_CYAN, hover_color="#0284c7", command=copy_data)
+        copy_btn.pack(side="left", padx=(0, 10))
+        
+        export_btn = ctk.CTkButton(btn_frame, text="💾 Export CSV", width=120, height=36, font=("Segoe UI", 12, "bold"), fg_color=CLR_GREEN, hover_color="#059669", command=download_data)
+        export_btn.pack(side="left")
+        
+        close_btn = ctk.CTkButton(btn_frame, text="Close", width=100, height=36, font=("Segoe UI", 12, "bold"), fg_color="transparent", border_width=1, border_color=CLR_BORDER, text_color=CLR_DIM, command=popup.destroy)
+        close_btn.pack(side="right")
+
+
     # --- UI Thread Safety Wrappers ---
     def safe_log_update(self, text):
         self.after(0, lambda: self._log_update(text))
@@ -1538,8 +1623,11 @@ del "%~f0"
         self.after(0, lambda: self._report_update(report_text, preview_text))
 
     def _report_update(self, report_text, preview_text):
-        self.report_terminal.delete("1.0", "end")
-        self.report_terminal.insert("end", report_text)
+        if hasattr(self, 'report_terminal'):
+            try:
+                self.report_terminal.delete("1.0", "end")
+                self.report_terminal.insert("end", report_text)
+            except Exception: pass
         self.preview_terminal.delete("1.0", "end")
         self.preview_terminal.insert("end", preview_text)
 

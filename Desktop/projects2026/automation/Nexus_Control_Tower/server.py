@@ -99,6 +99,11 @@ def init_db():
                     filename TEXT,
                     is_latest INTEGER DEFAULT 0
                  )''')
+    # Safe migration: Add sha256 column if missing to versions table
+    try:
+        c.execute("ALTER TABLE versions ADD COLUMN sha256 TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
     # Table for remote commands
     c.execute('''CREATE TABLE IF NOT EXISTS remote_commands (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,6 +131,97 @@ init_db()
 # ─── Admin Secret (simple protection) ─────────────────────────────────────
 ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "nexus-admin-2026")
 
+# ─── JWT Utilities ──────────────────────────────────────────────────────────
+import base64
+import hmac
+import hashlib
+import json
+
+def base64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b'=').decode('utf-8')
+
+def base64url_decode(data: str) -> bytes:
+    padding = '=' * (4 - (len(data) % 4))
+    return base64.urlsafe_b64decode(data + padding)
+
+def create_jwt(payload: dict, secret: str) -> str:
+    header = {"alg": "HS256", "typ": "JWT"}
+    header_b64 = base64url_encode(json.dumps(header).encode('utf-8'))
+    payload_b64 = base64url_encode(json.dumps(payload).encode('utf-8'))
+    signature = hmac.new(secret.encode('utf-8'), f"{header_b64}.{payload_b64}".encode('utf-8'), hashlib.sha256).digest()
+    sig_b64 = base64url_encode(signature)
+    return f"{header_b64}.{payload_b64}.{sig_b64}"
+
+def verify_jwt(token: str, secret: str) -> dict:
+    try:
+        parts = token.split('.')
+        if len(parts) != 3:
+            return None
+        header_b64, payload_b64, sig_b64 = parts
+        expected_sig = hmac.new(secret.encode('utf-8'), f"{header_b64}.{payload_b64}".encode('utf-8'), hashlib.sha256).digest()
+        if not hmac.compare_digest(base64url_decode(sig_b64), expected_sig):
+            return None
+        payload = json.loads(base64url_decode(payload_b64).decode('utf-8'))
+        if "exp" in payload and time.time() > payload["exp"]:
+            return None
+        return payload
+    except Exception:
+        return None
+
+def verify_admin_cookie(request: Request) -> dict:
+    token = request.cookies.get("admin_session")
+    if not token:
+        return None
+    payload = verify_jwt(token, ADMIN_SECRET)
+    if payload and payload.get("user") == "admin":
+        return payload
+    return None
+
+def check_admin_auth(request: Request, body_secret: str = None) -> bool:
+    session = verify_admin_cookie(request)
+    if session:
+        return True
+    if body_secret and body_secret == ADMIN_SECRET:
+        return True
+    return False
+
+# ─── API Rate Limiting ─────────────────────────────────────────────────────
+rate_limit_records = {} # client_ip -> list of timestamps
+RATE_LIMIT_MAX = 30
+RATE_LIMIT_WINDOW = 60 # seconds
+
+def enforce_rate_limit(request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    if client_ip not in rate_limit_records:
+        rate_limit_records[client_ip] = []
+    
+    # Filter out timestamps older than the window
+    timestamps = [t for t in rate_limit_records[client_ip] if now - t < RATE_LIMIT_WINDOW]
+    rate_limit_records[client_ip] = timestamps
+    
+    if len(timestamps) >= RATE_LIMIT_MAX:
+        logger.warning(f"[SECURITY] Rate limit exceeded for IP: {client_ip}")
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+        
+    rate_limit_records[client_ip].append(now)
+
+# ─── Telegram Chat History & Logger ───────────────────────────────────────
+telegram_chat_history = [] # list of {"timestamp": int, "sender": str, "text": str, "is_bot": bool}
+
+def log_telegram_event(sender: str, text: str, is_bot: bool = False):
+    telegram_chat_history.append({
+        "timestamp": int(time.time()),
+        "sender": sender,
+        "text": text,
+        "is_bot": is_bot
+    })
+    if len(telegram_chat_history) > 100:
+        telegram_chat_history.pop(0)
+
+# Initialize with startup message
+log_telegram_event("System", "Control Tower Telegram Chat Box Initialized.")
+
 # ─── Telegram Bot Config ───────────────────────────────────────────────────
 # Set these as environment variables in your Docker/ECS task definition:
 #   TG_BOT_TOKEN  : your bot token from @BotFather
@@ -133,10 +229,18 @@ ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "nexus-admin-2026")
 TG_BOT_TOKEN  = os.environ.get("TG_BOT_TOKEN", "")
 TG_ADMIN_CHAT = os.environ.get("TG_ADMIN_CHAT", "")
 
+class LoginRequest(BaseModel):
+    password: str
+
+class TelegramSendRequest(BaseModel):
+    text: str
+    admin_secret: str = ""
+
 class PublishVersionRequest(BaseModel):
     version_str: str
     filename: str
     admin_secret: str
+    sha256: str = ""
 
 class RestoreBackupRequest(BaseModel):
     backup_key: str
@@ -173,8 +277,8 @@ def health_check():
     return {"status": "ok", "service": "Nexus Control Tower"}
 
 @app.post("/api/admin/add_license")
-def admin_add_license(data: AdminLicense):
-    if data.admin_secret != ADMIN_SECRET:
+def admin_add_license(data: AdminLicense, request: Request):
+    if not check_admin_auth(request, data.admin_secret):
         raise HTTPException(status_code=403, detail="Unauthorized")
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -189,8 +293,8 @@ def admin_add_license(data: AdminLicense):
     return {"status": "success", "message": f"License {data.key} added"}
 
 @app.post("/api/admin/logs")
-def get_admin_logs(data: RevokeRequest):
-    if data.admin_secret != ADMIN_SECRET:
+def get_admin_logs(data: RevokeRequest, request: Request):
+    if not check_admin_auth(request, data.admin_secret):
         raise HTTPException(status_code=403, detail="Unauthorized")
     if not os.path.exists(LOG_FILE):
         return {"logs": "Log file empty or not created yet."}
@@ -202,7 +306,9 @@ def get_admin_logs(data: RevokeRequest):
         return {"logs": f"Error reading logs: {e}"}
 
 @app.post("/api/admin/revoke_license")
-def admin_revoke_license(data: RevokeRequest):
+def admin_revoke_license(data: RevokeRequest, request: Request):
+    if not check_admin_auth(request, data.admin_secret):
+        raise HTTPException(status_code=403, detail="Unauthorized")
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("UPDATE licenses SET is_active=0 WHERE key=?", (data.key,))
@@ -215,7 +321,9 @@ def admin_revoke_license(data: RevokeRequest):
     return {"status": "revoked", "key": data.key}
 
 @app.get("/api/admin/list_licenses")
-def admin_list_licenses():
+def admin_list_licenses(request: Request):
+    if not check_admin_auth(request):
+        raise HTTPException(status_code=403, detail="Unauthorized")
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("SELECT key, client_name, hwid, is_active, last_seen, version FROM licenses")
@@ -234,8 +342,8 @@ def admin_list_licenses():
     ]
 
 @app.post("/api/admin/issue_command")
-def issue_remote_command(data: CommandIssue):
-    if data.admin_secret != ADMIN_SECRET:
+def issue_remote_command(data: CommandIssue, request: Request):
+    if not check_admin_auth(request, data.admin_secret):
         raise HTTPException(status_code=403, detail="Unauthorized")
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -246,8 +354,8 @@ def issue_remote_command(data: CommandIssue):
     return {"status": "success", "message": "Command queued for execution."}
 
 @app.post("/api/admin/issue_command_all")
-def issue_remote_command_all(data: CommandIssueAll):
-    if data.admin_secret != ADMIN_SECRET:
+def issue_remote_command_all(data: CommandIssueAll, request: Request):
+    if not check_admin_auth(request, data.admin_secret):
         raise HTTPException(status_code=403, detail="Unauthorized")
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -270,7 +378,8 @@ def issue_remote_command_all(data: CommandIssueAll):
     return {"status": "success", "message": f"Command '{data.command}' queued for {len(rows)} active clients."}
 
 @app.get("/api/poll_commands")
-def poll_commands(hwid: str, version: str = ""):
+def poll_commands(hwid: str, request: Request, version: str = ""):
+    enforce_rate_limit(request)
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     # Update last_seen and version for client heartbeat
@@ -292,7 +401,8 @@ def ack_command(data: CommandAck):
     return {"status": "success"}
 
 @app.post("/api/verify_license")
-def verify_license(data: LicenseCheck):
+def verify_license(data: LicenseCheck, request: Request):
+    enforce_rate_limit(request)
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("SELECT hwid, is_active FROM licenses WHERE key=?", (data.key,))
@@ -354,8 +464,8 @@ async def upload_report(file: UploadFile = File(...)):
     return {"status": "success", "filename": filename}
 
 @app.get("/api/admin/download_report")
-def download_report(date: str = None, admin_secret: str = None):
-    if admin_secret != ADMIN_SECRET:
+def download_report(request: Request, date: str = None, admin_secret: str = None):
+    if not check_admin_auth(request, admin_secret):
         raise HTTPException(status_code=403, detail="Unauthorized")
     
     if not date:
@@ -381,27 +491,29 @@ def check_update():
     try:
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
-        c.execute("SELECT version_str, filename FROM versions WHERE is_latest=1 ORDER BY id DESC LIMIT 1")
+        c.execute("SELECT version_str, filename, sha256 FROM versions WHERE is_latest=1 ORDER BY id DESC LIMIT 1")
         row = c.fetchone()
         conn.close()
         if row:
-            version_str, filename = row
+            version_str, filename, sha256 = row
             return {
                 "latest_version": version_str,
-                "download_url": f"/download/{filename}"
+                "download_url": f"/download/{filename}",
+                "sha256": sha256 or ""
             }
     except Exception as e:
         logger.error(f"[DB] Error checking latest version in database: {e}")
     
     # Fallback to hardcoded version for backward compatibility or safety
     return {
-        "latest_version": "14.9",
-        "download_url": "/download/Ashish_Kumar_NexusSyncPro_v14.9.exe"
+        "latest_version": "15.0",
+        "download_url": "/download/Ashish_Kumar_NexusSyncPro_v15.0.exe",
+        "sha256": ""
     }
 
 @app.post("/api/admin/publish_version")
-def publish_version(data: PublishVersionRequest):
-    if data.admin_secret != ADMIN_SECRET:
+def publish_version(data: PublishVersionRequest, request: Request):
+    if not check_admin_auth(request, data.admin_secret):
         raise HTTPException(status_code=403, detail="Unauthorized")
     
     conn = sqlite3.connect(DB_FILE)
@@ -410,8 +522,8 @@ def publish_version(data: PublishVersionRequest):
         # Reset all other versions is_latest to 0
         c.execute("UPDATE versions SET is_latest=0")
         # Insert new version
-        c.execute("INSERT INTO versions (version_str, filename, is_latest) VALUES (?, ?, 1)", 
-                  (data.version_str, data.filename))
+        c.execute("INSERT INTO versions (version_str, filename, is_latest, sha256) VALUES (?, ?, 1, ?)", 
+                  (data.version_str, data.filename, data.sha256))
         conn.commit()
     except Exception as e:
         conn.close()
@@ -630,8 +742,50 @@ def portfolio_page():
     with open(portfolio_path, "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
+@app.post("/api/login")
+def login(data: LoginRequest):
+    if data.password == ADMIN_SECRET:
+        token = create_jwt({"user": "admin", "exp": time.time() + 86400 * 7}, ADMIN_SECRET)
+        from fastapi.responses import JSONResponse
+        response = JSONResponse(content={"status": "success"})
+        response.set_cookie(
+            key="admin_session",
+            value=token,
+            httponly=True,
+            max_age=86400 * 7,
+            samesite="lax",
+            secure=False
+        )
+        return response
+    else:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+@app.get("/logout")
+def logout():
+    response = RedirectResponse(url="/login.html", status_code=303)
+    response.delete_cookie("admin_session")
+    return response
+
+@app.get("/api/admin/telegram_history")
+def get_telegram_history(request: Request):
+    if not check_admin_auth(request):
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    return telegram_chat_history
+
+@app.post("/api/admin/send_telegram")
+def send_telegram(data: TelegramSendRequest, request: Request):
+    if not check_admin_auth(request, data.admin_secret):
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    if not TG_BOT_TOKEN or not TG_ADMIN_CHAT:
+        raise HTTPException(status_code=400, detail="Telegram Bot is not configured on the server")
+    
+    _tg_send(TG_ADMIN_CHAT, data.text)
+    return {"status": "success"}
+
 @app.get("/admin", response_class=HTMLResponse)
-def admin_dashboard():
+def admin_dashboard(request: Request):
+    if not check_admin_auth(request):
+        return RedirectResponse(url="/login.html")
     with open(ADMIN_HTML, "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
@@ -640,19 +794,30 @@ def portfolio3_redirect():
     return RedirectResponse(url="/portfolio3/")
 
 @app.get("/{page_name}", response_class=HTMLResponse)
-def serve_dynamic_page(page_name: str):
+def serve_dynamic_page(page_name: str, request: Request):
+    clean_name = page_name
+    if clean_name.endswith(".html"):
+        clean_name = clean_name[:-5]
+        
+    if clean_name == "admin_dashboard":
+        return RedirectResponse(url="/admin")
+        
     # Avoid hijacking standard administrative or static routes
-    if page_name in ["admin", "portfolio", "download_latest", "favicon.ico", "api", "portfolio3"]:
+    if clean_name in ["admin", "portfolio", "download_latest", "favicon.ico", "api", "portfolio3"]:
         raise HTTPException(status_code=404)
     
     # Check if a matching HTML file exists in the repository root (same directory as server.py)
-    file_path = os.path.join(os.path.dirname(__file__), f"{page_name}.html")
+    file_path = os.path.join(os.path.dirname(__file__), f"{clean_name}.html")
     if os.path.exists(file_path):
         try:
+            # Protect admin_dashboard.html explicitly
+            if clean_name == "admin_dashboard":
+                if not check_admin_auth(request):
+                    return RedirectResponse(url="/login.html")
             with open(file_path, "r", encoding="utf-8") as f:
                 return HTMLResponse(content=f.read())
         except Exception as e:
-            logger.error(f"Error reading dynamic page {page_name}.html: {e}")
+            logger.error(f"Error reading dynamic page {clean_name}.html: {e}")
             raise HTTPException(status_code=500, detail="Error reading page file")
             
     raise HTTPException(status_code=404, detail="Page not found")
@@ -663,6 +828,7 @@ def serve_dynamic_page(page_name: str):
 # ═══════════════════════════════════════════════════════════════
 def _tg_send(chat_id: str, text: str):
     """Send a message to a Telegram chat."""
+    log_telegram_event("Telegram Bot", text, is_bot=True)
     try:
         http_client.post(
             f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage",
@@ -674,6 +840,7 @@ def _tg_send(chat_id: str, text: str):
 
 def _tg_send_with_keyboard(chat_id: str, text: str, keyboard: list):
     """Send a message with an inline keyboard."""
+    log_telegram_event("Telegram Bot", text, is_bot=True)
     try:
         http_client.post(
             f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage",
@@ -789,6 +956,11 @@ def start_telegram_bot():
                 msg_id = cb.get("message", {}).get("message_id")
                 query_id = cb.get("id")
                 data = cb.get("data", "")
+                
+                # Log callback query event
+                user_info = cb.get("from", {})
+                username = user_info.get("username") or user_info.get("first_name") or f"User {chat_id[:4]}"
+                log_telegram_event(username, f"[Clicked Button] Data: {data}", is_bot=False)
 
                 if chat_id != TG_ADMIN_CHAT:
                     _tg_answer_callback(query_id, "⛔ Access Denied")
@@ -913,6 +1085,11 @@ def start_telegram_bot():
 
             if not text:
                 continue
+
+            # Log incoming message event
+            user_info = msg.get("from", {})
+            username = user_info.get("username") or user_info.get("first_name") or f"User {chat_id[:4]}"
+            log_telegram_event(username, text, is_bot=False)
 
             if chat_id != TG_ADMIN_CHAT:
                 _tg_send(chat_id, "⛔ *Access Denied.* Unauthorized.")
