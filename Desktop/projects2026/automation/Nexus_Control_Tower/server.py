@@ -112,6 +112,15 @@ def init_db():
                     is_executed INTEGER DEFAULT 0
                  )''')
     
+    # Table for operator_notebook
+    c.execute('''CREATE TABLE IF NOT EXISTS operator_notebook (
+                    gp_name TEXT PRIMARY KEY,
+                    operator_name TEXT DEFAULT '',
+                    phone_number TEXT DEFAULT '',
+                    last_updated INTEGER DEFAULT 0,
+                    hwid TEXT DEFAULT ''
+                 )''')
+    
     # SEED DEFAULT LICENSES IF EMPTY
     c.execute("SELECT COUNT(*) FROM licenses")
     if c.fetchone()[0] == 0:
@@ -271,6 +280,17 @@ class CommandIssueAll(BaseModel):
 
 class CommandAck(BaseModel):
     command_id: int
+
+class OperatorEntry(BaseModel):
+    gp_name: str
+    operator_name: str = ""
+    phone_number: str = ""
+    last_updated: int = 0
+    hwid: str = ""
+
+class OperatorSyncRequest(BaseModel):
+    entries: list[OperatorEntry]
+    hwid: str
 
 @app.get("/api/health")
 def health_check():
@@ -437,6 +457,50 @@ def verify_license(data: LicenseCheck, request: Request):
     conn.commit()
     conn.close()
     return {"status": "success", "message": "License verified."}
+
+@app.post("/api/sync_operators")
+def sync_operators(data: OperatorSyncRequest):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    for entry in data.entries:
+        c.execute("SELECT last_updated FROM operator_notebook WHERE gp_name=?", (entry.gp_name,))
+        row = c.fetchone()
+        if row:
+            db_last_updated = row[0]
+            if entry.last_updated > db_last_updated:
+                c.execute("""
+                    UPDATE operator_notebook 
+                    SET operator_name=?, phone_number=?, last_updated=?, hwid=?
+                    WHERE gp_name=?
+                """, (entry.operator_name, entry.phone_number, entry.last_updated, data.hwid, entry.gp_name))
+        else:
+            c.execute("""
+                INSERT INTO operator_notebook (gp_name, operator_name, phone_number, last_updated, hwid)
+                VALUES (?, ?, ?, ?, ?)
+            """, (entry.gp_name, entry.operator_name, entry.phone_number, entry.last_updated, data.hwid))
+    conn.commit()
+    conn.close()
+    threading.Thread(target=sync_db_to_s3, daemon=True).start()
+    return {"status": "success", "message": "Synced successfully."}
+
+@app.get("/api/get_operators")
+def get_operators():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT gp_name, operator_name, phone_number, last_updated, hwid FROM operator_notebook")
+    rows = c.fetchall()
+    conn.close()
+    
+    entries = []
+    for r in rows:
+        entries.append({
+            "gp_name": r[0],
+            "operator_name": r[1],
+            "phone_number": r[2],
+            "last_updated": r[3],
+            "hwid": r[4]
+        })
+    return {"status": "success", "entries": entries}
 
 REPORTS_DIR = "reports"
 os.makedirs(REPORTS_DIR, exist_ok=True)

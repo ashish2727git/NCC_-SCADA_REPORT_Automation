@@ -51,7 +51,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Ashish_Kumar_NexusSyncPro',
+    name='Ashish_Kumar_NexusSyncPro_v15.4-BETA',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
