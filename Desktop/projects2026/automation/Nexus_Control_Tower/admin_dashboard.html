@@ -131,9 +131,7 @@
     <button class="nav-item" onclick="showSection('backups',this); loadBackups()">
       <span class="icon">💾</span> DB Backups
     </button>
-    <button class="nav-item" onclick="showSection('telegram',this); loadTelegramChat()">
-      <span class="icon">💬</span> Telegram Chat
-    </button>
+
     <button class="nav-item" onclick="window.location.href='/logout'" style="color:var(--danger)">
       <span class="icon">🚪</span> Logout
     </button>
@@ -345,22 +343,7 @@
       </div>
     </div>
 
-    <!-- TELEGRAM CHAT -->
-    <div id="sec-telegram" class="section">
-      <div class="page-header">
-        <h2>Telegram Bot Control Panel</h2>
-        <p>Monitor bot notifications, incoming admin chats, and broadcast messages</p>
-      </div>
-      <div class="card" style="display:flex; flex-direction:column; height: 500px; padding:0; overflow:hidden; border: 1px solid var(--border);">
-        <div id="tg-chat-messages" style="flex:1; padding:20px; overflow-y:auto; background:#0b0f19; display:flex; flex-direction:column; gap:12px;">
-          <!-- messages load here -->
-        </div>
-        <div style="padding:16px; background:var(--surface); border-top:1px solid var(--border); display:flex; gap:12px; align-items:center;">
-          <input type="text" id="tg-chat-input" placeholder="Type a message to send to the Telegram Admin Chat..." style="flex:1; padding:12px 16px; border-radius:8px; border:1px solid var(--border); background:#0f172a; color:var(--text); font-size:0.95rem; outline:none;" onkeydown="if(event.key==='Enter')sendTelegramMsg()">
-          <button class="btn btn-primary" onclick="sendTelegramMsg()" style="padding:12px 24px; font-weight:600;">⚡ Send</button>
-        </div>
-      </div>
-    </div>
+
 
   </div>
 </div>
@@ -369,7 +352,6 @@
 
 <script>
 let logSource = null;
-let tgPollInterval = null;
 
 function showSection(name, btn){
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
@@ -384,13 +366,6 @@ function showSection(name, btn){
     }
   } else {
     startLogStream();
-  }
-
-  if (name !== 'telegram') {
-    if (tgPollInterval) {
-      clearInterval(tgPollInterval);
-      tgPollInterval = null;
-    }
   }
 }
 
@@ -412,70 +387,6 @@ function startLogStream(){
   logSource.onerror = function(err) {
     term.value += "[SYSTEM] Log stream connection lost. Reconnecting...\n";
   };
-}
-
-function loadTelegramChat() {
-  fetchTelegramHistory();
-  if (tgPollInterval) clearInterval(tgPollInterval);
-  tgPollInterval = setInterval(fetchTelegramHistory, 3000);
-}
-
-async function fetchTelegramHistory() {
-  try {
-    const r = await fetch('/api/admin/telegram_history');
-    if (!r.ok) return;
-    const data = await r.json();
-    const container = document.getElementById('tg-chat-messages');
-    if (!container) return;
-    
-    const isScrolledToBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 30;
-    
-    container.innerHTML = data.map(msg => {
-      const timeStr = new Date(msg.timestamp * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-      const isSelf = msg.sender === 'Control Tower Admin' || msg.is_bot;
-      const align = isSelf ? 'flex-end' : 'flex-start';
-      const bg = isSelf ? 'rgba(14, 165, 233, 0.15)' : 'rgba(255, 255, 255, 0.05)';
-      const border = isSelf ? '1px solid rgba(14, 165, 233, 0.3)' : '1px solid var(--border)';
-      
-      return `
-        <div style="display:flex; flex-direction:column; align-self:${align}; max-width:70%; gap:4px;">
-          <div style="font-size:0.75rem; color:var(--muted); text-align:${isSelf ? 'right' : 'left'};">${msg.sender} <span style="opacity:0.6; margin-left:4px;">${timeStr}</span></div>
-          <div style="padding:10px 14px; border-radius:12px; background:${bg}; border:${border}; color:var(--text); font-size:0.9rem; line-height:1.4; word-break:break-word;">
-            ${msg.text.replace(/\n/g, '<br>')}
-          </div>
-        </div>
-      `;
-    }).join('');
-    
-    if (isScrolledToBottom && data.length > 0) {
-      container.scrollTop = container.scrollHeight;
-    }
-  } catch (e) {
-    console.error("Failed to load Telegram history", e);
-  }
-}
-
-async function sendTelegramMsg() {
-  const input = document.getElementById('tg-chat-input');
-  const text = input.value.trim();
-  if (!text) return;
-  
-  input.value = '';
-  try {
-    const r = await fetch('/api/admin/send_telegram', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, admin_secret: "" })
-    });
-    if (r.ok) {
-      fetchTelegramHistory();
-    } else {
-      const err = await r.json();
-      toast(err.detail || 'Failed to send message', 'error');
-    }
-  } catch (e) {
-    toast('Server connection failed', 'error');
-  }
 }
 
 function toast(msg, type='success'){

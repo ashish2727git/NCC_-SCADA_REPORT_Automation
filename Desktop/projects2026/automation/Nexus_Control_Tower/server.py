@@ -130,6 +130,10 @@ def init_db():
         
     conn.commit()
     conn.close()
+    try:
+        sync_db_to_s3()
+    except Exception as e:
+        logger.error(f"[DB] Initial S3 schema upload failed: {e}")
 
 # Try downloading from S3 first (synchronously at boot)
 sync_db_from_s3()
@@ -1219,8 +1223,8 @@ def update_cloudflare_dns():
         logger.error(f"Error updating Cloudflare DNS: {e}")
 
 @app.get("/api/admin/list_backups")
-def list_backups(admin_secret: str = None):
-    if admin_secret != ADMIN_SECRET:
+def list_backups(request: Request, admin_secret: str = None):
+    if not check_admin_auth(request, admin_secret):
         raise HTTPException(status_code=403, detail="Unauthorized")
     
     try:
@@ -1246,8 +1250,8 @@ def list_backups(admin_secret: str = None):
         raise HTTPException(status_code=500, detail=f"Failed to list S3 backups: {str(e)}")
 
 @app.post("/api/admin/restore_backup")
-def restore_backup(data: RestoreBackupRequest):
-    if data.admin_secret != ADMIN_SECRET:
+def restore_backup(data: RestoreBackupRequest, request: Request):
+    if not check_admin_auth(request, data.admin_secret):
         raise HTTPException(status_code=403, detail="Unauthorized")
         
     logger.info(f"[DB] Restoring database from S3 backup key: {data.backup_key}")
@@ -1269,8 +1273,8 @@ def restore_backup(data: RestoreBackupRequest):
     return {"status": "success", "message": "Database successfully restored from backup."}
 
 @app.get("/api/admin/log_stream")
-async def log_stream(admin_secret: str = None):
-    if admin_secret != ADMIN_SECRET:
+async def log_stream(request: Request, admin_secret: str = None):
+    if not check_admin_auth(request, admin_secret):
         raise HTTPException(status_code=403, detail="Unauthorized")
         
     async def event_generator():
