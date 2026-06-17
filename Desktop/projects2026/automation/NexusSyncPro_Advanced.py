@@ -48,7 +48,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "15.0"
+CLIENT_VERSION = "15.2"
 PORTAL_URL = "http://122.186.209.30:8068/NCC/Sitapur/Sign-In-Users.php"
 CONFIG_FILE = os.path.join(_BASE_DIR, "nexus_config.json")
 
@@ -329,6 +329,7 @@ class NexusSyncPro(ctk.CTk):
 
         # ── INITIALIZE WORKSPACE (Auto-selects last location) ──
         self.watch_folder = self._select_workspace_folder()
+        self.refresh_historical_dates()
 
         self.safe_log_update(f"[SYS] System Architecture v{CLIENT_VERSION} (Production Ready) Initialized.")
         self.safe_log_update(f"[SYS] Daily data directory mapped: {self.watch_folder}")
@@ -549,6 +550,7 @@ class NexusSyncPro(ctk.CTk):
         with open(config_path, "w") as fp:
             fp.write(chosen)
 
+        self.workspace_base = chosen
         dated_folder = os.path.join(chosen, self.today_str)
         os.makedirs(dated_folder, exist_ok=True)
         return dated_folder
@@ -559,6 +561,7 @@ class NexusSyncPro(ctk.CTk):
             self.watch_folder = new_folder
             self.safe_log_update(f"[SYS] Workspace switched: {self.watch_folder}")
             self.rebuild_history_log()
+            self.refresh_historical_dates()
             # Run a fresh analysis on the new folder context
             files = glob.glob(os.path.join(self.watch_folder, '*.xlsx'))
             raw_files = [f for f in files if not os.path.basename(f).startswith("Final_Daily_Report")]
@@ -1111,7 +1114,7 @@ del "%~f0"
 
 
         # --- MAIN TABVIEW ---
-        self.main_tabs = ctk.CTkTabview(self, fg_color="transparent")
+        self.main_tabs = ctk.CTkTabview(self, fg_color="transparent", command=self.on_tab_changed)
         self.main_tabs.pack(side="right", fill="both", expand=True, padx=20, pady=20)
         
         self.tab_dash = self.main_tabs.add("📊 SCADA DASHBOARD")
@@ -1238,10 +1241,25 @@ del "%~f0"
         
         self.refresh_historical_dates()
 
+    def on_tab_changed(self):
+        if hasattr(self, 'main_tabs'):
+            try:
+                current_tab = self.main_tabs.get()
+                if current_tab == "📂 HISTORICAL VIEWER":
+                    self.refresh_historical_dates()
+            except Exception:
+                pass
+
     def refresh_historical_dates(self):
-        if not hasattr(self, 'watch_folder') or not os.path.exists(self.watch_folder):
-            return
-        files = glob.glob(os.path.join(self.watch_folder, 'Final_Daily_Report_*.xlsx'))
+        if not hasattr(self, 'workspace_base') or not os.path.exists(self.workspace_base):
+            if hasattr(self, 'watch_folder') and os.path.exists(self.watch_folder):
+                base_dir = os.path.dirname(self.watch_folder)
+            else:
+                return
+        else:
+            base_dir = self.workspace_base
+
+        files = glob.glob(os.path.join(base_dir, '**', 'Final_Daily_Report_*.xlsx'), recursive=True)
         dates = []
         self.history_file_map = {}
         for f in files:
@@ -1259,14 +1277,17 @@ del "%~f0"
                 return datetime.min
         dates.sort(key=parse_date, reverse=True)
         
-        if dates:
-            self.date_dropdown.configure(values=dates)
-            if not self.selected_date_var.get() or self.selected_date_var.get() not in dates:
-                self.selected_date_var.set(dates[0])
-                self.load_historical_file(dates[0])
-        else:
-            self.date_dropdown.configure(values=["No reports found"])
-            self.selected_date_var.set("No reports found")
+        def update_gui():
+            if dates:
+                self.date_dropdown.configure(values=dates)
+                if not self.selected_date_var.get() or self.selected_date_var.get() not in dates:
+                    self.selected_date_var.set(dates[0])
+                    self.load_historical_file(dates[0])
+            else:
+                self.date_dropdown.configure(values=["No reports found"])
+                self.selected_date_var.set("No reports found")
+
+        self.after(0, update_gui)
 
     def load_historical_file(self, date_str):
         filepath = getattr(self, 'history_file_map', {}).get(date_str)
@@ -2261,6 +2282,7 @@ del "%~f0"
 
             wb.save(final_path)
             self.safe_log_update(f"✅ Final Matrix Report Saved: {final_path}")
+            self.refresh_historical_dates()
 
             # Upload final matrix report to Control Tower server
             try:
