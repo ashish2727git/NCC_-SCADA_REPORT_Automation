@@ -722,9 +722,10 @@ def check_update():
         logger.error(f"[DB] Error checking latest version in database: {e}")
     
     # Fallback to hardcoded version for backward compatibility or safety
+    # NOTE: CI/CD always uploads to S3 as 'latest.exe' — use that as the canonical download URL
     return {
         "latest_version": "16.0",
-        "download_url": "/download/Ashish_Kumar_NexusSyncPro_v16.0.exe",
+        "download_url": "/download/latest.exe",
         "sha256": ""
     }
 
