@@ -48,7 +48,51 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "15.4-beta"
+CLIENT_VERSION = "15.7"
+
+def parse_version(version_str):
+    """Parses a version string like '15.4-beta' or '15.5' into a comparable tuple.
+    Example: '15.4-beta' -> (15, 4, 0, 'beta')
+             '15.5'      -> (15, 5, 0, 'release')
+    """
+    if not version_str:
+        return (0, 0, 0, '')
+    parts = re.split(r'[-_]', str(version_str).strip())
+    version_nums = parts[0].split('.')
+    nums = []
+    for num in version_nums:
+        try:
+            nums.append(int(num))
+        except ValueError:
+            nums.append(0)
+    while len(nums) < 3:
+        nums.append(0)
+    suffix = parts[1].lower() if len(parts) > 1 else 'release'
+    return (nums[0], nums[1], nums[2], suffix)
+
+def is_newer_version(latest_str, current_str):
+    """Compares two version strings. Returns True if latest_str is newer than current_str."""
+    try:
+        latest = parse_version(latest_str)
+        current = parse_version(current_str)
+        # Compare numerical parts first
+        if latest[:3] > current[:3]:
+            return True
+        elif latest[:3] < current[:3]:
+            return False
+        # If numerical parts are identical, release is newer than beta/alpha
+        suffixes = {'alpha': 1, 'beta': 2, 'rc': 3, 'release': 4}
+        latest_suffix_score = suffixes.get(latest[3], 0)
+        current_suffix_score = suffixes.get(current[3], 0)
+        return latest_suffix_score > current_suffix_score
+    except Exception:
+        # Fallback to float coercion if parsing fails unexpectedly
+        try:
+            latest_clean = "".join(c for c in str(latest_str) if c.isdigit() or c == '.')
+            current_clean = "".join(c for c in str(current_str) if c.isdigit() or c == '.')
+            return float(latest_clean) > float(current_clean)
+        except Exception:
+            return False
 
 # ──────────────────────────────────────────────
 # 🎨 UI_THEME: Switch visual style without rebuilding
@@ -64,10 +108,10 @@ def _load_ui_theme():
         try:
             with open(CONFIG_FILE) as f:
                 cfg = json.load(f)
-            return cfg.get("ui_theme", "nextgen")
+            return cfg.get("ui_theme", "classic")
         except Exception:
             pass
-    return "nextgen"
+    return "classic"
 
 UI_THEME = _load_ui_theme()
 
@@ -522,7 +566,7 @@ class NexusSyncPro(ctk.CTk):
                 data = resp.json()
                 latest_ver = data.get("latest_version", "0.0")
                 dl_url = data.get("download_url", "")
-                has_update = float(latest_ver) > float(CURRENT_VER)
+                has_update = is_newer_version(latest_ver, CURRENT_VER)
                 self.after(0, lambda: self._show_update_status_popup(CURRENT_VER, latest_ver, dl_url, has_update, online=True))
             else:
                 self.after(0, lambda: self._show_update_status_popup(CURRENT_VER, "?", "", False, online=False))
@@ -767,8 +811,7 @@ class NexusSyncPro(ctk.CTk):
                 data = resp.json()
                 latest_ver = data.get("latest_version", "0.0")
                 current_ver = CLIENT_VERSION
-
-                if float(latest_ver) > float(current_ver):
+                if is_newer_version(latest_ver, current_ver):
                     self.safe_log_update(f"[OTA] Update available: v{latest_ver}. Initiating download...")
                     dl_url = f"http://devash.in{data.get('download_url')}"
                     
@@ -950,7 +993,7 @@ class NexusSyncPro(ctk.CTk):
                     data = resp.json()
                     latest_ver = data.get("latest_version", "0.0")
                     current_ver = CLIENT_VERSION
-                    if float(latest_ver) > float(current_ver):
+                    if is_newer_version(latest_ver, current_ver):
                         self.safe_log_update(f"[REMOTE] Update v{latest_ver} available. Opening progress UI...")
                         self.after(0, lambda: self.show_download_progress_popup(latest_ver))
                     else:
@@ -1121,22 +1164,7 @@ del "%~f0"
                                      text_color=CLR_TEXT, font=("Segoe UI", 13, "bold"), height=40, command=self.manual_change_workspace)
         self.ws_btn.pack(fill="x", pady=5)
 
-        # Theme Selector Dropdown
-        theme_frame = ctk.CTkFrame(ctrl_frame, fg_color="transparent")
-        theme_frame.pack(fill="x", pady=5)
-        ctk.CTkLabel(theme_frame, text="🎨 APP THEME", font=("Segoe UI", 10, "bold"), text_color=CLR_CYAN).pack(anchor="w")
-        self.theme_menu = ctk.CTkOptionMenu(theme_frame, values=["Slate Midnight", "Arctic Ice", "Obsidian Cyberpunk"],
-                                             command=self.change_theme, font=("Segoe UI", 12, "bold"), height=34,
-                                             fg_color=CLR_SIDEBAR, button_color=CLR_BORDER, button_hover_color=CLR_DIM,
-                                             text_color=CLR_TEXT, dropdown_fg_color=CLR_SIDEBAR, dropdown_hover_color=CLR_CYAN,
-                                             dropdown_text_color=CLR_TEXT)
-        self.theme_menu.pack(fill="x", pady=(2, 0))
-        if UI_THEME == "classic":
-            self.theme_menu.set("Arctic Ice")
-        elif UI_THEME == "cyberpunk":
-            self.theme_menu.set("Obsidian Cyberpunk")
-        else:
-            self.theme_menu.set("Slate Midnight")
+        # Theme Selector removed
 
         # Hidden Chrome Button: Personal WhatsApp access protected.
         # Trigger manually using double-click on version/dev credits in sidebar OR Ctrl+Shift+W shortcut.
@@ -1269,29 +1297,23 @@ del "%~f0"
         self.metrics_wrapper = ctk.CTkFrame(self.bottom_split, fg_color="transparent")
         self.metrics_wrapper.pack(side="left", fill="both", expand=True, padx=(0, 10))
 
-        # Middle Metrics Frame (JJM) - Row 1
-        self.metrics_container = ctk.CTkFrame(self.metrics_wrapper, fg_color="transparent")
-        self.metrics_container.pack(fill="x", pady=(0, 10))
-        
-        self.jjm_total_lbl = self._create_metric_card(self.metrics_container, "TOTAL JJM SCHEMES", "0", CLR_CYAN, command=lambda e: self.show_list_popup("JJM TOTAL", self.jjm_list_data.get("total", [])))
-        self.jjm_live_lbl = self._create_metric_card(self.metrics_container, "LIVE CONNECTED", "0", CLR_GREEN, command=lambda e: self.show_list_popup("JJM LIVE CONNECTED", self.jjm_list_data.get("live", [])))
-        self.jjm_not_recv_lbl = self._create_metric_card(self.metrics_container, "DATA NOT RECEIVED", "0", CLR_GOLD, command=lambda e: self.show_list_popup("JJM NOT RECEIVED", self.jjm_list_data.get("not_recv", [])))
+        # Grid layout for metrics cards (3x3 grid) - perfectly aligned and resizable
+        self.metrics_grid = ctk.CTkFrame(self.metrics_wrapper, fg_color="transparent")
+        self.metrics_grid.pack(fill="both", expand=True)
+        self.metrics_grid.columnconfigure((0, 1, 2), weight=1)
+        self.metrics_grid.rowconfigure((0, 1, 2), weight=1)
 
-        # Middle Metrics Frame (JJM) - Row 2
-        self.metrics_container_2 = ctk.CTkFrame(self.metrics_wrapper, fg_color="transparent")
-        self.metrics_container_2.pack(fill="x", pady=(0, 10))
-        
-        self.jjm_leftover_lbl = self._create_metric_card(self.metrics_container_2, "OFF-GRID / MISSING", "0", "#ff4d4d", command=lambda e: self.show_list_popup("JJM OFF-GRID / MISSING", self.jjm_list_data.get("leftover", [])))
-        self.jjm_new_lbl = self._create_metric_card(self.metrics_container_2, "NEWLY ADDED IN JJM", "0", "#ff4d4d", command=lambda e: self.show_list_popup("JJM NEWLY ADDED", self.jjm_list_data.get("new", [])))
+        self.jjm_total_lbl = self._create_metric_card_grid(self.metrics_grid, "TOTAL JJM SCHEMES", "0", CLR_CYAN, 0, 0, command=lambda e: self.show_list_popup("JJM TOTAL", self.jjm_list_data.get("total", [])))
+        self.jjm_live_lbl = self._create_metric_card_grid(self.metrics_grid, "LIVE CONNECTED", "0", CLR_GREEN, 1, 0, command=lambda e: self.show_list_popup("JJM LIVE CONNECTED", self.jjm_list_data.get("live", [])))
+        self.jjm_not_recv_lbl = self._create_metric_card_grid(self.metrics_grid, "DATA NOT RECEIVED", "0", CLR_GOLD, 2, 0, command=lambda e: self.show_list_popup("JJM NOT RECEIVED", self.jjm_list_data.get("not_recv", [])))
 
-        # SCADA Metrics Frame
-        self.scada_metrics_container = ctk.CTkFrame(self.metrics_wrapper, fg_color="transparent")
-        self.scada_metrics_container.pack(fill="x", pady=(0, 10))
-        
-        self.scada_total_lbl = self._create_metric_card(self.scada_metrics_container, "SCADA TOTAL (EXCEL)", "0", CLR_CYAN, command=lambda e: self.show_list_popup("SCADA TOTAL SCHEMES", self.scada_data.get("total", [])))
-        self.scada_sync_lbl = self._create_metric_card(self.scada_metrics_container, "NOW SCADA SYNCED", "0", CLR_GREEN, command=lambda e: self.show_list_popup("SCADA SYNCED SCHEMES", self.scada_data.get("synced", [])))
-        self.scada_unsync_lbl = self._create_metric_card(self.scada_metrics_container, "NOT YET SYNCED", "0", CLR_GOLD, command=lambda e: self.show_list_popup("SCADA NOT SYNCED", self.scada_data.get("not_synced", [])))
-        self.scada_new_lbl = self._create_metric_card(self.scada_metrics_container, "NEWLY ADDED IN SCADA", "0", "#ff4d4d", command=lambda e: self.show_list_popup("SCADA NEWLY ADDED", self.scada_data.get("new", [])))
+        self.jjm_leftover_lbl = self._create_metric_card_grid(self.metrics_grid, "OFF-GRID / MISSING", "0", "#ff4d4d", 0, 1, command=lambda e: self.show_list_popup("JJM OFF-GRID / MISSING", self.jjm_list_data.get("leftover", [])))
+        self.jjm_new_lbl = self._create_metric_card_grid(self.metrics_grid, "NEWLY ADDED IN JJM", "0", "#ff4d4d", 1, 1, command=lambda e: self.show_list_popup("JJM NEWLY ADDED", self.jjm_list_data.get("new", [])))
+        self.scada_total_lbl = self._create_metric_card_grid(self.metrics_grid, "SCADA TOTAL (EXCEL)", "0", CLR_CYAN, 2, 1, command=lambda e: self.show_list_popup("SCADA TOTAL SCHEMES", self.scada_data.get("total", [])))
+
+        self.scada_sync_lbl = self._create_metric_card_grid(self.metrics_grid, "NOW SCADA SYNCED", "0", CLR_GREEN, 0, 2, command=lambda e: self.show_list_popup("SCADA SYNCED SCHEMES", self.scada_data.get("synced", [])))
+        self.scada_unsync_lbl = self._create_metric_card_grid(self.metrics_grid, "NOT YET SYNCED", "0", CLR_GOLD, 1, 2, command=lambda e: self.show_list_popup("SCADA NOT SYNCED", self.scada_data.get("not_synced", [])))
+        self.scada_new_lbl = self._create_metric_card_grid(self.metrics_grid, "NEWLY ADDED IN SCADA", "0", "#ff4d4d", 2, 2, command=lambda e: self.show_list_popup("SCADA NEWLY ADDED", self.scada_data.get("new", [])))
 
         # 4. WhatsApp Preview Terminal (Right side of bottom split)
         self.preview_container = ctk.CTkFrame(self.bottom_split, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER, height=350)
@@ -2000,6 +2022,25 @@ del "%~f0"
         else:
             self.safe_log_update("[SYS] Auto-Pilot disabled.")
 
+
+    def _create_metric_card_grid(self, parent, title, val, color, row, col, command=None):
+        card = ctk.CTkFrame(parent, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
+        card.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
+        
+        title_lbl = ctk.CTkLabel(card, text=title, font=("Segoe UI", 10, "bold"), text_color=CLR_DIM, fg_color="transparent")
+        title_lbl.pack(pady=(12, 0), anchor="center")
+        lbl = ctk.CTkLabel(card, text=val, font=("Segoe UI", 24, "bold"), text_color=color, fg_color="transparent")
+        lbl.pack(expand=True, anchor="center")
+        
+        if command:
+            card.bind("<Button-1>", command)
+            title_lbl.bind("<Button-1>", command)
+            lbl.bind("<Button-1>", command)
+            card.configure(cursor="hand2")
+            lbl.configure(cursor="hand2")
+            title_lbl.configure(cursor="hand2")
+            
+        return lbl
 
     def _create_metric_card(self, parent, title, val, color, command=None):
         card = ctk.CTkFrame(parent, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER, height=85)
