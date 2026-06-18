@@ -4827,51 +4827,292 @@ del "%~f0"
             messagebox.showinfo("No Data", f"No matching hourly parameters parsed for GP: {gp_name}")
             return
             
+        # Calculate averages and stats
+        flow_vals = []
+        press_vals = []
+        level_vals = []
+        pump_on_hours = 0
+        
+        for r in hourly_records:
+            try:
+                flow_vals.append(float(r["Flow Rate"]))
+            except:
+                pass
+            try:
+                press_vals.append(float(r["Pressure"]))
+            except:
+                pass
+            try:
+                level_vals.append(float(r["Water Level"]))
+            except:
+                pass
+            p_status = str(r["Pump Status"]).lower()
+            if any(x in p_status for x in ["on", "run", "active", "1", "yes"]):
+                pump_on_hours += 1
+                
+        avg_flow = sum(flow_vals) / len(flow_vals) if flow_vals else 0.0
+        avg_press = sum(press_vals) / len(press_vals) if press_vals else 0.0
+        avg_level = sum(level_vals) / len(level_vals) if level_vals else 0.0
+
         # Create a custom popup details table
         popup = ctk.CTkToplevel(self)
-        popup.title(f"📊 Hourly Metrics — {gp_name}")
-        popup.geometry("680x480")
+        popup.title(f"📊 Visual Analytics — {gp_name}")
+        popup.geometry("1000x620")
+        popup.resizable(False, False)
         popup.attributes("-topmost", True)
         popup.configure(fg_color=CLR_BG)
         
         popup.update_idletasks()
-        px = self.winfo_x() + (self.winfo_width() // 2) - (680 // 2)
-        py = self.winfo_y() + (self.winfo_height() // 2) - (480 // 2)
+        px = self.winfo_x() + (self.winfo_width() // 2) - (1000 // 2)
+        py = self.winfo_y() + (self.winfo_height() // 2) - (620 // 2)
         popup.geometry(f"+{px}+{py}")
         
-        ctk.CTkLabel(popup, text=f"📊 Hourly Parameter Logs", font=("Segoe UI", 14, "bold"), text_color=CLR_CYAN).pack(pady=(15, 2))
-        ctk.CTkLabel(popup, text=f"Scheme: {gp_name}", font=("Segoe UI", 12, "bold"), text_color=CLR_TEXT).pack(pady=(0, 15))
+        # Title Block
+        title_frame = ctk.CTkFrame(popup, fg_color="transparent")
+        title_frame.pack(fill="x", pady=(15, 5), padx=20)
+        ctk.CTkLabel(title_frame, text=f"📊 Scheme Hourly Visual Analytics", font=("Segoe UI", 16, "bold"), text_color=CLR_CYAN).pack(anchor="w")
+        ctk.CTkLabel(title_frame, text=f"Scheme / Gram Panchayat: {gp_name}  │  Source file: {filename}", font=("Segoe UI", 10), text_color=CLR_DIM).pack(anchor="w")
         
-        grid_frame = ctk.CTkFrame(popup, fg_color="transparent")
-        grid_frame.pack(fill="both", expand=True, padx=20, pady=10)
+        # Main Split Container
+        main_split = ctk.CTkFrame(popup, fg_color="transparent")
+        main_split.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        # Left Panel (Charts)
+        charts_panel = ctk.CTkFrame(main_split, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
+        charts_panel.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        
+        # Right Panel (Stats & Grid)
+        right_panel = ctk.CTkFrame(main_split, fg_color="transparent")
+        right_panel.pack(side="right", fill="both", width=380, padx=(10, 0))
+        
+        # Stats Cards (Right Top)
+        stats_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
+        stats_frame.pack(fill="x", pady=(0, 10))
+        stats_frame.columnconfigure((0, 1), weight=1)
+        
+        # Add KPI Cards
+        def create_kpi_card(parent, title, val, col, row, color):
+            card = ctk.CTkFrame(parent, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER, height=75)
+            card.grid(column=col, row=row, padx=4, pady=4, sticky="nsew")
+            card.grid_propagate(False)
+            ctk.CTkLabel(card, text=title.upper(), font=("Segoe UI", 9, "bold"), text_color=CLR_DIM).pack(anchor="w", padx=10, pady=(6, 2))
+            ctk.CTkLabel(card, text=val, font=("Segoe UI", 14, "bold"), text_color=color).pack(anchor="w", padx=10)
+            
+        create_kpi_card(stats_frame, "Avg Flow Rate", f"{avg_flow:.2f} m³/h", 0, 0, CLR_CYAN)
+        create_kpi_card(stats_frame, "Avg Pressure", f"{avg_press:.2f} bar", 1, 0, CLR_GOLD)
+        create_kpi_card(stats_frame, "Avg Water Level", f"{avg_level:.2f} m", 0, 1, CLR_GREEN)
+        create_kpi_card(stats_frame, "Pump Run Time", f"{pump_on_hours}.00 hrs", 1, 1, CLR_GREEN if pump_on_hours > 0 else CLR_DIM)
+        
+        # Treeview Grid (Right Bottom)
+        grid_container = ctk.CTkFrame(right_panel, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
+        grid_container.pack(fill="both", expand=True)
+        
+        ctk.CTkLabel(grid_container, text="📋 Raw Log Records", font=("Segoe UI", 11, "bold"), text_color=CLR_CYAN).pack(anchor="w", padx=12, pady=(10, 4))
+        
+        grid_inner = ctk.CTkFrame(grid_container, fg_color="transparent")
+        grid_inner.pack(fill="both", expand=True, padx=8, pady=(0, 8))
         
         import tkinter.ttk as ttk
         style = ttk.Style()
         style.theme_use('clam')
-        style.configure("Popup.Treeview", background=CLR_TREE_BG, foreground=CLR_TREE_FG, rowheight=26, fieldbackground=CLR_TREE_BG, font=("Segoe UI", 10))
-        style.configure("Popup.Treeview.Heading", background=CLR_TREE_HDR, foreground=CLR_CYAN, font=("Segoe UI", 10, "bold"), borderwidth=1, bordercolor=CLR_BORDER)
+        style.configure("Popup.Treeview", background=CLR_TREE_BG, foreground=CLR_TREE_FG, rowheight=24, fieldbackground=CLR_TREE_BG, font=("Segoe UI", 9))
+        style.configure("Popup.Treeview.Heading", background=CLR_TREE_HDR, foreground=CLR_CYAN, font=("Segoe UI", 9, "bold"), borderwidth=1, bordercolor=CLR_BORDER)
         
         cols = ["time", "flow_rate", "pump_status", "pressure", "water_level"]
-        tree = ttk.Treeview(grid_frame, columns=cols, show="headings", style="Popup.Treeview")
+        tree = ttk.Treeview(grid_inner, columns=cols, show="headings", style="Popup.Treeview")
         tree.pack(side="left", fill="both", expand=True)
         
-        tree.heading("time", text="Sync Time")
-        tree.column("time", width=110, anchor="center")
-        tree.heading("flow_rate", text="Flow Rate (m³/h)")
-        tree.column("flow_rate", width=130, anchor="center")
-        tree.heading("pump_status", text="Pump Status")
-        tree.column("pump_status", width=110, anchor="center")
-        tree.heading("pressure", text="Pressure (bar)")
-        tree.column("pressure", width=110, anchor="center")
-        tree.heading("water_level", text="Water Level (m)")
-        tree.column("water_level", width=110, anchor="center")
+        tree.heading("time", text="Time")
+        tree.column("time", width=70, anchor="center")
+        tree.heading("flow_rate", text="Flow (m³/h)")
+        tree.column("flow_rate", width=75, anchor="center")
+        tree.heading("pump_status", text="Pump")
+        tree.column("pump_status", width=65, anchor="center")
+        tree.heading("pressure", text="Press (bar)")
+        tree.column("pressure", width=70, anchor="center")
+        tree.heading("water_level", text="Level (m)")
+        tree.column("water_level", width=70, anchor="center")
         
-        vscroll = ctk.CTkScrollbar(grid_frame, orientation="vertical", command=tree.yview)
+        vscroll = ctk.CTkScrollbar(grid_inner, orientation="vertical", command=tree.yview)
         vscroll.pack(side="right", fill="y")
         tree.configure(yscrollcommand=vscroll.set)
         
         for r in hourly_records:
             tree.insert("", "end", values=(r["Time"], r["Flow Rate"], r["Pump Status"], r["Pressure"], r["Water Level"]))
+            
+        # Left Panel Charts Setup
+        ctk.CTkLabel(charts_panel, text="📈 Parameter Trends (Normalized)", font=("Segoe UI", 12, "bold"), text_color=CLR_CYAN).pack(anchor="w", padx=15, pady=(12, 2))
+        
+        # Legend
+        legend_frame = ctk.CTkFrame(charts_panel, fg_color="transparent")
+        legend_frame.pack(fill="x", padx=15, pady=(0, 4))
+        
+        def add_legend_item(parent, color, text):
+            lbl = ctk.CTkLabel(parent, text=f"■ {text}", font=("Segoe UI", 10, "bold"), text_color=color)
+            lbl.pack(side="left", padx=(0, 15))
+            
+        add_legend_item(legend_frame, CLR_CYAN, "Flow Rate")
+        add_legend_item(legend_frame, CLR_GOLD, "Pressure")
+        add_legend_item(legend_frame, CLR_GREEN, "Water Level")
+        add_legend_item(legend_frame, "#22c55e", "Pump ON")
+        
+        # Drawing Canvas
+        chart_w = 540
+        chart_h = 420
+        canvas = tk.Canvas(charts_panel, width=chart_w, height=chart_h, bg=CLR_LOG_BG, highlightthickness=0)
+        canvas.pack(padx=15, pady=(5, 12), fill="both", expand=True)
+        
+        # Draw gridlines & labels
+        margin_x = 40
+        margin_y = 30
+        plot_w = chart_w - margin_x - 20
+        plot_h = 240 # Height of trend plot
+        
+        # Draw background grids
+        for k in range(5):
+            y_grid = margin_y + (plot_h / 4) * k
+            canvas.create_line(margin_x, y_grid, margin_x + plot_w, y_grid, fill=CLR_BORDER, dash=(2, 2))
+            pct = 100 - 25 * k
+            canvas.create_text(margin_x - 12, y_grid, text=f"{pct}%", fill=CLR_DIM, font=("Segoe UI", 8), anchor="e")
+            
+        # Draw axis lines
+        canvas.create_line(margin_x, margin_y, margin_x, margin_y + plot_h, fill=CLR_BORDER)
+        canvas.create_line(margin_x, margin_y + plot_h, margin_x + plot_w, margin_y + plot_h, fill=CLR_BORDER)
+        
+        # Normalize lists
+        def get_coords(records, key):
+            vals = []
+            for r in records:
+                try:
+                    vals.append(float(r[key]))
+                except:
+                    vals.append(0.0)
+            if not vals:
+                return []
+            min_v = min(vals)
+            max_v = max(vals)
+            if max_v == min_v:
+                max_v += 1.0
+            coords = []
+            spacing = plot_w / (len(vals) - 1) if len(vals) > 1 else plot_w
+            for idx, val in enumerate(vals):
+                cx = margin_x + idx * spacing
+                cy = margin_y + plot_h - ((val - min_v) / (max_v - min_v) * plot_h)
+                coords.append((cx, cy))
+            return coords
+            
+        flow_coords = get_coords(hourly_records, "Flow Rate")
+        press_coords = get_coords(hourly_records, "Pressure")
+        level_coords = get_coords(hourly_records, "Water Level")
+        
+        # Draw Trend Lines (Splines if smooth)
+        def draw_trend_curve(coords, color):
+            if len(coords) < 2:
+                return
+            flat_coords = []
+            for cx, cy in coords:
+                flat_coords.extend([cx, cy])
+            canvas.create_line(flat_coords, smooth=True, splinesteps=36, fill=color, width=2.5)
+            # Dots
+            for cx, cy in coords:
+                canvas.create_oval(cx - 3, cy - 3, cx + 3, cy + 3, fill=color, outline=CLR_BG, width=1)
+                
+        draw_trend_curve(flow_coords, CLR_CYAN)
+        draw_trend_curve(press_coords, CLR_GOLD)
+        draw_trend_curve(level_coords, CLR_GREEN)
+        
+        # Draw Time Labels on X-axis (4 intervals)
+        n_rec = len(hourly_records)
+        if n_rec > 1:
+            interval = max(1, n_rec // 4)
+            spacing = plot_w / (n_rec - 1)
+            for idx in range(0, n_rec, interval):
+                cx = margin_x + idx * spacing
+                canvas.create_line(cx, margin_y + plot_h, cx, margin_y + plot_h + 4, fill=CLR_BORDER)
+                canvas.create_text(cx, margin_y + plot_h + 12, text=hourly_records[idx]["Time"], fill=CLR_DIM, font=("Segoe UI", 7), anchor="n")
+                
+        # Draw Pump Timeline
+        timeline_y = margin_y + plot_h + 40
+        timeline_h = 24
+        canvas.create_text(margin_x - 12, timeline_y + timeline_h / 2, text="PUMP", fill=CLR_DIM, font=("Segoe UI", 8, "bold"), anchor="e")
+        
+        # Timeline border
+        canvas.create_rectangle(margin_x, timeline_y, margin_x + plot_w, timeline_y + timeline_h, outline=CLR_BORDER, fill=CLR_LOG_BG, width=1.5)
+        
+        # Timeline blocks
+        if n_rec > 0:
+            block_w = plot_w / n_rec
+            for idx, r in enumerate(hourly_records):
+                bx1 = margin_x + idx * block_w
+                bx2 = bx1 + block_w
+                p_status = str(r["Pump Status"]).lower()
+                is_on = any(x in p_status for x in ["on", "run", "active", "1", "yes"])
+                block_color = "#22c55e" if is_on else "#334155"
+                # Draw filled block
+                canvas.create_rectangle(bx1 + 1, timeline_y + 1, bx2 - 1, timeline_y + timeline_h - 1, fill=block_color, outline="")
+                
+            # Timeline time ticks (under timeline)
+            for idx in range(0, n_rec, max(1, n_rec // 4)):
+                bx = margin_x + idx * block_w
+                canvas.create_line(bx, timeline_y + timeline_h, bx, timeline_y + timeline_h + 4, fill=CLR_BORDER)
+                canvas.create_text(bx, timeline_y + timeline_h + 12, text=hourly_records[idx]["Time"], fill=CLR_DIM, font=("Segoe UI", 7), anchor="n")
+                
+        # Tooltip Hover Functionality
+        def on_popup_canvas_hover(event):
+            canvas.delete("hover_tool")
+            if n_rec == 0:
+                return
+            # Find closest index
+            spacing = plot_w / (n_rec - 1) if n_rec > 1 else plot_w
+            idx = round((event.x - margin_x) / spacing)
+            if idx < 0 or idx >= n_rec:
+                return
+                
+            cx = margin_x + idx * spacing
+            
+            # Vertical tracking line
+            canvas.create_line(cx, margin_y, cx, margin_y + plot_h, fill="#64748b", dash=(3, 3), tags="hover_tool")
+            
+            # Hover points on curves
+            for coords, color in [(flow_coords, CLR_CYAN), (press_coords, CLR_GOLD), (level_coords, CLR_GREEN)]:
+                if idx < len(coords):
+                    px, py = coords[idx]
+                    canvas.create_oval(px - 5, py - 5, px + 5, py + 5, fill=color, outline="#ffffff", width=1.5, tags="hover_tool")
+                    
+            # Tooltip Text
+            rec = hourly_records[idx]
+            info = [
+                f"Time: {rec['Time']}",
+                f"Flow: {rec['Flow Rate']} m³/h",
+                f"Press: {rec['Pressure']} bar",
+                f"Level: {rec['Water Level']} m",
+                f"Pump: {rec['Pump Status']}"
+            ]
+            
+            # Draw Tooltip Box
+            tooltip_w = 140
+            tooltip_h = 95
+            tx = cx + 15
+            ty = event.y - 45
+            
+            # Keep tooltip inside canvas bounds
+            if tx + tooltip_w > chart_w:
+                tx = cx - tooltip_w - 15
+            if ty < 10:
+                ty = 10
+            elif ty + tooltip_h > chart_h - 10:
+                ty = chart_h - tooltip_h - 10
+                
+            canvas.create_rectangle(tx, ty, tx + tooltip_w, ty + tooltip_h, fill=CLR_CARD, outline=CLR_BORDER, width=1.5, tags="hover_tool")
+            
+            for line_idx, line in enumerate(info):
+                canvas.create_text(tx + 8, ty + 8 + line_idx * 17 + 8, text=line, fill=CLR_TEXT, font=("Segoe UI", 8, "bold" if line_idx == 0 else "normal"), anchor="w", tags="hover_tool")
+                
+        def on_popup_canvas_leave(event):
+            canvas.delete("hover_tool")
+            
+        canvas.bind("<Motion>", on_popup_canvas_hover)
+        canvas.bind("<Leave>", on_popup_canvas_leave)
 
     # ──────────────────────────────────────────────────────────────────────────
     # 🎨 DYNAMIC THEME SYSTEM INTERFACE (v15.4)
