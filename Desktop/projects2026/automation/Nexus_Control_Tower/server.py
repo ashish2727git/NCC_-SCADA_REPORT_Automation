@@ -723,8 +723,8 @@ def check_update():
     
     # Fallback to hardcoded version for backward compatibility or safety
     return {
-        "latest_version": "15.2",
-        "download_url": "/download/Ashish_Kumar_NexusSyncPro_v15.2.exe",
+        "latest_version": "15.9",
+        "download_url": "/download/Ashish_Kumar_NexusSyncPro_v15.9.exe",
         "sha256": ""
     }
 

@@ -621,18 +621,18 @@ class NexusSyncPro(ctk.CTk):
             ctk.CTkLabel(right, text=f"v{latest_ver}", font=("Segoe UI", 20, "bold"), text_color=color).pack(anchor="e")
 
         # ── What's New list ──
-        ctk.CTkLabel(popup, text="📌  WHAT'S IN v14.0", font=("Segoe UI", 11, "bold"),
+        ctk.CTkLabel(popup, text="📌  WHAT'S IN v15.9", font=("Segoe UI", 11, "bold"),
                      text_color="#94a3b8").pack(anchor="w", padx=24, pady=(4, 0))
         scroll = ctk.CTkScrollableFrame(popup, fg_color="transparent", height=190)
         scroll.pack(fill="x", padx=20, pady=(4, 0))
 
         features = [
-            ("📡", "Telegram Remote Control — trigger field machines from your phone"),
-            ("🔐", "OTP Command Verification — 6-digit one-time code before every action"),
-            ("🖥", "Admin Desktop Control Panel — manage licenses & server without browser"),
-            ("🛡", "Hardware-Bound Licensing — key locks to your specific machine"),
-            ("📂", "Secure AppData Storage — invisible, safe credential management"),
-            ("🔄", "Overnight Auto-Update — updates apply silently at 7PM shutdown"),
+            ("💬", "Command Chat Console — control machines via an interactive admin chat"),
+            ("📊", "Historical Viewer Fixes — resolved hourly scheme metrics display problems"),
+            ("🎯", "Symmetric Dashboard — aligned SCADA count cards and JJM boxes neatly"),
+            ("🔧", "Notebook Sr. No. — added sequential serial numbers to operator list"),
+            ("📈", "Live & Disconnected Trends — performance graph now shows proper data curves"),
+            ("🛡", "Robust Version Comparison — alphanumeric version-checks prevent runtime errors"),
         ]
         for icon_f, text_f in features:
             row = ctk.CTkFrame(scroll, fg_color="#1e293b", corner_radius=8)
