@@ -1269,6 +1269,18 @@ del "%~f0"
 
         
         # --- DASHBOARD TAB ---
+        # Layout settings gear button row (top of dashboard tab)
+        dash_header_row = ctk.CTkFrame(self.tab_dash, fg_color="transparent")
+        dash_header_row.pack(fill="x", padx=8, pady=(4, 0))
+        ctk.CTkButton(
+            dash_header_row, text="\u2699\ufe0f  Layout Settings",
+            font=("Segoe UI", 10, "bold"),
+            fg_color="transparent", border_width=1, border_color=CLR_BORDER,
+            text_color=CLR_DIM, hover_color=CLR_LOG_BG,
+            height=26, width=130,
+            command=self._open_layout_settings
+        ).pack(side="right", padx=4)
+
         self.display = ctk.CTkScrollableFrame(self.tab_dash, fg_color="transparent")
         self.display.pack(fill="both", expand=True)
 
@@ -1276,20 +1288,29 @@ del "%~f0"
         self.top_split = ctk.CTkFrame(self.display, fg_color="transparent")
         self.top_split.pack(fill="x", pady=(0, 15))
 
+        # Load layout config (heights/widths saved by user)
+        _lc = self._get_layout_config()
+
         # 1. System Log Terminal
-        self.log_container = ctk.CTkFrame(self.top_split, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER, height=220)
+        self.log_container = ctk.CTkFrame(self.top_split, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER,
+                                           height=_lc["log_height"])
         self.log_container.pack(side="left", fill="both", expand=True, padx=(0, 10))
-        self.log_container.pack_propagate(False) 
-        ctk.CTkLabel(self.log_container, text="📡 SYSTEM LOG ENGINE", font=("Segoe UI", 11, "bold"), text_color=CLR_CYAN).pack(anchor="w", padx=15, pady=5)
-        self.log_terminal = ctk.CTkTextbox(self.log_container, fg_color=CLR_LOG_BG, text_color=CLR_LOG_FG, font=("Consolas", 11))
+        self.log_container.pack_propagate(False)
+        ctk.CTkLabel(self.log_container, text="\U0001f4e1 SYSTEM LOG ENGINE",
+                     font=("Segoe UI", 11, "bold"), text_color=CLR_CYAN).pack(anchor="w", padx=15, pady=5)
+        self.log_terminal = ctk.CTkTextbox(self.log_container, fg_color=CLR_LOG_BG, text_color=CLR_LOG_FG,
+                                            font=("Consolas", 11))
         self.log_terminal.pack(fill="both", expand=True, padx=10, pady=10)
 
         # 2. Daily Mapping History Terminal
-        self.history_container = ctk.CTkFrame(self.top_split, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER, height=220)
+        self.history_container = ctk.CTkFrame(self.top_split, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER,
+                                               height=_lc["log_height"])
         self.history_container.pack(side="right", fill="both", expand=True, padx=(10, 0))
         self.history_container.pack_propagate(False)
-        ctk.CTkLabel(self.history_container, text="⏱️ DAILY MAPPING HISTORY", font=("Segoe UI", 11, "bold"), text_color=CLR_CYAN).pack(anchor="w", padx=15, pady=5)
-        self.history_terminal = ctk.CTkTextbox(self.history_container, fg_color=CLR_LOG_BG, text_color=CLR_CYAN, font=("Consolas", 11))
+        ctk.CTkLabel(self.history_container, text="\u23f1\ufe0f DAILY MAPPING HISTORY",
+                     font=("Segoe UI", 11, "bold"), text_color=CLR_CYAN).pack(anchor="w", padx=15, pady=5)
+        self.history_terminal = ctk.CTkTextbox(self.history_container, fg_color=CLR_LOG_BG, text_color=CLR_CYAN,
+                                               font=("Consolas", 11))
         self.history_terminal.pack(fill="both", expand=True, padx=10, pady=10)
 
         # Bottom Split Frame (Metrics & WhatsApp)
@@ -1302,16 +1323,19 @@ del "%~f0"
 
         # 1. JJM Portal Panel — Cyan accent theme
         # Outer wrapper with strong LEFT border accent (cyan) to visually identify JJM section
-        jjm_outer = ctk.CTkFrame(self.metrics_wrapper, fg_color="#e0f7fa" if UI_THEME == "classic" else "#0d2333",
-                                  border_width=0, corner_radius=10)
-        jjm_outer.pack(fill="both", expand=True, pady=(0, 12))
+        self.jjm_outer = ctk.CTkFrame(self.metrics_wrapper,
+                                       fg_color="#e0f7fa" if UI_THEME == "classic" else "#0d2333",
+                                       border_width=0, corner_radius=10,
+                                       height=_lc["jjm_height"])
+        self.jjm_outer.pack(fill="both", expand=True, pady=(0, 12))
+        self.jjm_outer.pack_propagate(False)
 
         # Left accent bar (thick cyan stripe)
-        jjm_accent = ctk.CTkFrame(jjm_outer, fg_color=CLR_CYAN, width=5, corner_radius=10)
+        jjm_accent = ctk.CTkFrame(self.jjm_outer, fg_color=CLR_CYAN, width=5, corner_radius=10)
         jjm_accent.pack(side="left", fill="y", padx=(0, 0))
         jjm_accent.pack_propagate(False)
 
-        self.jjm_panel = ctk.CTkFrame(jjm_outer, fg_color=CLR_CARD, border_width=1,
+        self.jjm_panel = ctk.CTkFrame(self.jjm_outer, fg_color=CLR_CARD, border_width=1,
                                        border_color=CLR_CYAN, corner_radius=8)
         self.jjm_panel.pack(side="left", fill="both", expand=True)
 
@@ -1346,16 +1370,19 @@ del "%~f0"
 
         # 2. SCADA Telemetry Panel — Purple accent theme
         # Outer wrapper with strong LEFT border accent (purple) to visually identify SCADA section
-        scada_outer = ctk.CTkFrame(self.metrics_wrapper, fg_color="#f5f0ff" if UI_THEME == "classic" else "#1a0d33",
-                                    border_width=0, corner_radius=10)
-        scada_outer.pack(fill="both", expand=True)
+        self.scada_outer = ctk.CTkFrame(self.metrics_wrapper,
+                                         fg_color="#f5f0ff" if UI_THEME == "classic" else "#1a0d33",
+                                         border_width=0, corner_radius=10,
+                                         height=_lc["scada_height"])
+        self.scada_outer.pack(fill="both", expand=True)
+        self.scada_outer.pack_propagate(False)
 
         # Left accent bar (thick purple stripe)
-        scada_accent = ctk.CTkFrame(scada_outer, fg_color="#8b5cf6", width=5, corner_radius=10)
+        scada_accent = ctk.CTkFrame(self.scada_outer, fg_color="#8b5cf6", width=5, corner_radius=10)
         scada_accent.pack(side="left", fill="y", padx=(0, 0))
         scada_accent.pack_propagate(False)
 
-        self.scada_panel = ctk.CTkFrame(scada_outer, fg_color=CLR_CARD, border_width=1,
+        self.scada_panel = ctk.CTkFrame(self.scada_outer, fg_color=CLR_CARD, border_width=1,
                                          border_color="#8b5cf6", corner_radius=8)
         self.scada_panel.pack(side="left", fill="both", expand=True)
 
@@ -1385,11 +1412,15 @@ del "%~f0"
         self.scada_new_lbl = self._create_metric_card_grid(self.scada_grid, "NEWLY ADDED IN SCADA", "0", "#ec4899", 1, 1, command=lambda e: self.show_list_popup("SCADA NEWLY ADDED", self.scada_data.get("new", [])))
 
         # 4. WhatsApp Preview Terminal (Right side of bottom split)
-        self.preview_container = ctk.CTkFrame(self.bottom_split, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER, height=350)
-        self.preview_container.pack(side="right", fill="both", expand=True, padx=(10, 0))
+        self.preview_container = ctk.CTkFrame(self.bottom_split, fg_color=CLR_CARD, border_width=1,
+                                               border_color=CLR_BORDER,
+                                               width=_lc["preview_width"])
+        self.preview_container.pack(side="right", fill="y", padx=(10, 0))
         self.preview_container.pack_propagate(False)
-        ctk.CTkLabel(self.preview_container, text="📱 WHATSAPP PAYLOAD PREVIEW", font=("Segoe UI", 11, "bold"), text_color=CLR_GREEN).pack(anchor="w", padx=15, pady=5)
-        self.preview_terminal = ctk.CTkTextbox(self.preview_container, fg_color=CLR_LOG_BG, text_color=CLR_TEXT, font=("Segoe UI", 12))
+        ctk.CTkLabel(self.preview_container, text="\U0001f4f1 WHATSAPP PAYLOAD PREVIEW",
+                     font=("Segoe UI", 11, "bold"), text_color=CLR_GREEN).pack(anchor="w", padx=15, pady=5)
+        self.preview_terminal = ctk.CTkTextbox(self.preview_container, fg_color=CLR_LOG_BG,
+                                               text_color=CLR_TEXT, font=("Segoe UI", 12))
         self.preview_terminal.pack(fill="both", expand=True, padx=10, pady=10)
 
         # 5. Broadcast Activity / Last Sync Status Block
@@ -1448,6 +1479,179 @@ del "%~f0"
         import json
         with open(CRED_FILE, "w") as f:
             json.dump({"tg_token": self.token_var.get().strip()}, f)
+
+    # ──────────────────────────────────────────────────────────────
+    # 🧩  DASHBOARD LAYOUT CUSTOMIZER
+    # ──────────────────────────────────────────────────────────────
+    _LAYOUT_DEFAULTS = {
+        "log_height":     180,   # px — System Log + Mapping History terminals
+        "jjm_height":     175,   # px — JJM Portal panel
+        "scada_height":   160,   # px — SCADA Telemetry panel
+        "preview_width":  300,   # px — WhatsApp Payload Preview column width
+    }
+
+    def _get_layout_config(self):
+        """Load layout config from nexus_config.json, falling back to defaults."""
+        import json
+        defaults = dict(self._LAYOUT_DEFAULTS)
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE) as f:
+                    cfg = json.load(f)
+                layout = cfg.get("layout", {})
+                for k in defaults:
+                    if k in layout:
+                        try:
+                            defaults[k] = int(layout[k])
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        return defaults
+
+    def _save_layout_config(self, layout: dict):
+        """Persist layout config into nexus_config.json."""
+        import json
+        cfg = {}
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE) as f:
+                    cfg = json.load(f)
+            except Exception:
+                pass
+        cfg["layout"] = layout
+        try:
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(cfg, f, indent=2)
+        except Exception as e:
+            self.safe_log_update(f"[WARN] Could not save layout config: {e}")
+
+    def _apply_layout_settings(self, layout: dict):
+        """Apply layout dict to live widgets without rebuilding the UI."""
+        try:
+            lh = max(80, min(400, int(layout["log_height"])))
+            jh = max(100, min(400, int(layout["jjm_height"])))
+            sh = max(100, min(400, int(layout["scada_height"])))
+            pw = max(180, min(600, int(layout["preview_width"])))
+
+            if hasattr(self, "log_container"):
+                self.log_container.configure(height=lh)
+            if hasattr(self, "history_container"):
+                self.history_container.configure(height=lh)
+            if hasattr(self, "jjm_outer"):
+                self.jjm_outer.configure(height=jh)
+            if hasattr(self, "scada_outer"):
+                self.scada_outer.configure(height=sh)
+            if hasattr(self, "preview_container"):
+                self.preview_container.configure(width=pw)
+        except Exception as e:
+            self.safe_log_update(f"[WARN] Layout apply error: {e}")
+
+    def _open_layout_settings(self):
+        """Open the Dashboard Layout Customizer popup with live-preview sliders."""
+        popup = ctk.CTkToplevel(self)
+        popup.title("Dashboard Layout Settings")
+        popup.resizable(False, False)
+        popup.attributes("-topmost", True)
+        popup.configure(fg_color="#0f172a")
+        popup.update_idletasks()
+        px = self.winfo_x() + (self.winfo_width() // 2) - 220
+        py = self.winfo_y() + (self.winfo_height() // 2) - 230
+        popup.geometry(f"440x460+{px}+{py}")
+
+        current = self._get_layout_config()
+
+        # ── Header ──────────────────────────────────────────────
+        ctk.CTkLabel(popup, text="\u2699\ufe0f  Dashboard Layout Settings",
+                     font=("Segoe UI", 15, "bold"), text_color="#0ea5e9").pack(pady=(18, 4))
+        ctk.CTkLabel(popup, text="Drag sliders to resize tiles. Changes preview live.",
+                     font=("Segoe UI", 10), text_color="#64748b").pack(pady=(0, 14))
+
+        sliders_frame = ctk.CTkFrame(popup, fg_color="#1e293b", corner_radius=10)
+        sliders_frame.pack(fill="x", padx=20, pady=(0, 12))
+
+        def _make_slider(parent, label, key, min_v, max_v, unit="px"):
+            row = ctk.CTkFrame(parent, fg_color="transparent")
+            row.pack(fill="x", padx=16, pady=(12, 0))
+            top_row = ctk.CTkFrame(row, fg_color="transparent")
+            top_row.pack(fill="x")
+            ctk.CTkLabel(top_row, text=label, font=("Segoe UI", 11, "bold"),
+                         text_color="#f1f5f9").pack(side="left")
+            val_lbl = ctk.CTkLabel(top_row, text=f"{current[key]}{unit}",
+                                   font=("Segoe UI", 11, "bold"), text_color="#0ea5e9", width=60)
+            val_lbl.pack(side="right")
+
+            var = tk.IntVar(value=current[key])
+
+            def on_change(v, k=key, lbl=val_lbl, vr=var):
+                iv = int(float(v))
+                lbl.configure(text=f"{iv}{unit}")
+                current[k] = iv
+                self._apply_layout_settings(current)
+
+            slider = ctk.CTkSlider(row, from_=min_v, to=max_v, number_of_steps=max_v - min_v,
+                                   variable=var, command=on_change)
+            slider.pack(fill="x", pady=(4, 6))
+            return var
+
+        _make_slider(sliders_frame, "\U0001f4dc  Log Terminal Height",   "log_height",    80,  350)
+        _make_slider(sliders_frame, "\U0001f310  JJM Panel Height",      "jjm_height",   100,  380)
+        _make_slider(sliders_frame, "\U0001f4ca  SCADA Panel Height",    "scada_height", 100,  380)
+        _make_slider(sliders_frame, "\U0001f4f1  WhatsApp Preview Width","preview_width", 180,  560)
+
+        ctk.CTkFrame(sliders_frame, fg_color="transparent", height=10).pack()
+
+        # ── Preset Buttons ────────────────────────────────────────
+        preset_row = ctk.CTkFrame(popup, fg_color="transparent")
+        preset_row.pack(fill="x", padx=20, pady=(0, 10))
+        ctk.CTkLabel(preset_row, text="Presets:", font=("Segoe UI", 10),
+                     text_color="#64748b").pack(side="left", padx=(0, 8))
+
+        def _apply_preset(preset):
+            for k, v in preset.items():
+                current[k] = v
+            self._apply_layout_settings(current)
+            popup.destroy()
+            self._open_layout_settings()
+
+        presets = [
+            ("Compact",  {"log_height": 110, "jjm_height": 145, "scada_height": 130, "preview_width": 240}),
+            ("Default",  dict(NexusSyncPro._LAYOUT_DEFAULTS)),
+            ("Spacious", {"log_height": 240, "jjm_height": 220, "scada_height": 200, "preview_width": 380}),
+        ]
+        for name, vals in presets:
+            ctk.CTkButton(preset_row, text=name, width=90, height=28,
+                          font=("Segoe UI", 10, "bold"),
+                          fg_color="#334155", hover_color="#475569", text_color="#f1f5f9",
+                          command=lambda v=vals: _apply_preset(v)).pack(side="left", padx=3)
+
+        # ── Action Buttons ────────────────────────────────────────
+        btn_row = ctk.CTkFrame(popup, fg_color="transparent")
+        btn_row.pack(fill="x", padx=20, pady=(4, 18))
+
+        def on_save():
+            self._save_layout_config(current)
+            self.safe_log_update("[SYS] Dashboard layout saved.")
+            popup.destroy()
+
+        def on_reset():
+            reset_vals = dict(NexusSyncPro._LAYOUT_DEFAULTS)
+            self._apply_layout_settings(reset_vals)
+            self._save_layout_config(reset_vals)
+            popup.destroy()
+            self.safe_log_update("[SYS] Dashboard layout reset to defaults.")
+
+        ctk.CTkButton(btn_row, text="\U0001f4be  Save Layout",
+                      font=("Segoe UI", 12, "bold"),
+                      fg_color="#10b981", hover_color="#059669",
+                      text_color="#ffffff", height=38,
+                      command=on_save).pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        ctk.CTkButton(btn_row, text="\u21ba  Reset Defaults",
+                      font=("Segoe UI", 12, "bold"),
+                      fg_color="transparent", border_width=1, border_color="#475569",
+                      text_color="#94a3b8", height=38,
+                      command=on_reset).pack(side="left", fill="x", expand=True, padx=(6, 0))
 
     def setup_history_ui(self):
         # ── HISTORICAL VIEWER: Top Control Bar ──────────────────────
