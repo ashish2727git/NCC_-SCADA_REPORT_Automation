@@ -48,7 +48,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "15.7"
+CLIENT_VERSION = "15.9"
 
 def parse_version(version_str):
     """Parses a version string like '15.4-beta' or '15.5' into a comparable tuple.
@@ -439,6 +439,10 @@ class NexusSyncPro(ctk.CTk):
         self.token_var = tk.StringVar()
         self._load_creds()
         
+        self.today_str = datetime.today().strftime("%d-%m-%Y")
+        # ── INITIALIZE WORKSPACE (Auto-selects last location) ──
+        self.watch_folder = self._select_workspace_folder()
+        
         self.setup_ui()
         
         # Clean up old executable backup from recent updates
@@ -454,7 +458,6 @@ class NexusSyncPro(ctk.CTk):
             pass
 
         os.makedirs(CHROME_DATA_DIR, exist_ok=True)
-        self.today_str = datetime.today().strftime("%d-%m-%Y")
 
         # ── OTA Update Check — runs every 2 hours throughout the day ──
         threading.Thread(target=self._periodic_update_check, daemon=True).start()
@@ -465,8 +468,7 @@ class NexusSyncPro(ctk.CTk):
         # ── What's New Popup (shown once per version) ──
         self.after(1500, self._check_whats_new)
 
-        # ── INITIALIZE WORKSPACE (Auto-selects last location) ──
-        self.watch_folder = self._select_workspace_folder()
+        # ── INITIALIZE WORKSPACE (Already mapped) ──
         self.refresh_historical_dates()
 
         self.safe_log_update(f"[SYS] System Architecture v{CLIENT_VERSION} (Production Ready) Initialized.")
@@ -1259,10 +1261,11 @@ del "%~f0"
         self.tab_dash = self.main_tabs.add("📊 SCADA DASHBOARD")
         self.tab_history = self.main_tabs.add("📂 HISTORICAL VIEWER")
         self.tab_notebook = self.main_tabs.add("📞 OPERATOR NOTEBOOK")
-        self.tab_charts = self.main_tabs.add("📈 PERFORMANCE CHARTS")
+        # Hidden in client build (can be reactivated for testing)
+        # self.tab_charts = self.main_tabs.add("📈 PERFORMANCE CHARTS")
         
         self.init_notebook_tab()
-        self.init_charts_tab()
+        # self.init_charts_tab()
 
         
         # --- DASHBOARD TAB ---
@@ -1297,23 +1300,52 @@ del "%~f0"
         self.metrics_wrapper = ctk.CTkFrame(self.bottom_split, fg_color="transparent")
         self.metrics_wrapper.pack(side="left", fill="both", expand=True, padx=(0, 10))
 
-        # Grid layout for metrics cards (3x3 grid) - perfectly aligned and resizable
-        self.metrics_grid = ctk.CTkFrame(self.metrics_wrapper, fg_color="transparent")
-        self.metrics_grid.pack(fill="both", expand=True)
-        self.metrics_grid.columnconfigure((0, 1, 2), weight=1)
-        self.metrics_grid.rowconfigure((0, 1, 2), weight=1)
+        # 1. JJM Portal Panel
+        self.jjm_panel = ctk.CTkFrame(self.metrics_wrapper, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
+        self.jjm_panel.pack(fill="both", expand=True, pady=(0, 10))
+        
+        # Watermark label in the background corner
+        self.jjm_watermark = ctk.CTkLabel(self.jjm_panel, text="JJM PORTAL", font=("Segoe UI", 36, "bold"), text_color=CLR_LOG_BG)
+        self.jjm_watermark.place(relx=0.98, rely=0.08, anchor="ne")
+        
+        ctk.CTkLabel(self.jjm_panel, text="🌐 JJM PORTAL STATUS (PORTAL METRICS)", font=("Segoe UI", 11, "bold"), text_color=CLR_CYAN).pack(anchor="w", padx=15, pady=(8, 2))
+        
+        self.jjm_grid = ctk.CTkFrame(self.jjm_panel, fg_color="transparent")
+        self.jjm_grid.pack(fill="both", expand=True, padx=10, pady=8)
+        self.jjm_grid.columnconfigure((0, 1, 2), weight=1)
+        self.jjm_grid.rowconfigure((0, 1), weight=1)
 
-        self.jjm_total_lbl = self._create_metric_card_grid(self.metrics_grid, "TOTAL JJM SCHEMES", "0", CLR_CYAN, 0, 0, command=lambda e: self.show_list_popup("JJM TOTAL", self.jjm_list_data.get("total", [])))
-        self.jjm_live_lbl = self._create_metric_card_grid(self.metrics_grid, "LIVE CONNECTED", "0", CLR_GREEN, 1, 0, command=lambda e: self.show_list_popup("JJM LIVE CONNECTED", self.jjm_list_data.get("live", [])))
-        self.jjm_not_recv_lbl = self._create_metric_card_grid(self.metrics_grid, "DATA NOT RECEIVED", "0", CLR_GOLD, 2, 0, command=lambda e: self.show_list_popup("JJM NOT RECEIVED", self.jjm_list_data.get("not_recv", [])))
+        self.jjm_total_lbl = self._create_metric_card_grid(self.jjm_grid, "TOTAL JJM SCHEMES", "0", CLR_CYAN, 0, 0, command=lambda e: self.show_list_popup("JJM TOTAL", self.jjm_list_data.get("total", [])))
+        self.jjm_live_lbl = self._create_metric_card_grid(self.jjm_grid, "LIVE CONNECTED", "0", CLR_GREEN, 1, 0, command=lambda e: self.show_list_popup("JJM LIVE CONNECTED", self.jjm_list_data.get("live", [])))
+        self.jjm_not_recv_lbl = self._create_metric_card_grid(self.jjm_grid, "DATA NOT RECEIVED", "0", CLR_GOLD, 2, 0, command=lambda e: self.show_list_popup("JJM NOT RECEIVED", self.jjm_list_data.get("not_recv", [])))
+        self.jjm_leftover_lbl = self._create_metric_card_grid(self.jjm_grid, "OFF-GRID / MISSING", "0", "#ef4444", 0, 1, command=lambda e: self.show_list_popup("JJM OFF-GRID / MISSING", self.jjm_list_data.get("leftover", [])))
+        self.jjm_new_lbl = self._create_metric_card_grid(self.jjm_grid, "NEWLY ADDED IN JJM", "0", "#fb7185", 1, 1, command=lambda e: self.show_list_popup("JJM NEWLY ADDED", self.jjm_list_data.get("new", [])))
+        
+        # 6th slot in JJM grid is left empty/symmetric
+        self.jjm_empty_lbl = ctk.CTkFrame(self.jjm_grid, fg_color="transparent")
+        self.jjm_empty_lbl.grid(row=1, column=2, padx=5, pady=5, sticky="nsew")
 
-        self.jjm_leftover_lbl = self._create_metric_card_grid(self.metrics_grid, "OFF-GRID / MISSING", "0", "#ff4d4d", 0, 1, command=lambda e: self.show_list_popup("JJM OFF-GRID / MISSING", self.jjm_list_data.get("leftover", [])))
-        self.jjm_new_lbl = self._create_metric_card_grid(self.metrics_grid, "NEWLY ADDED IN JJM", "0", "#ff4d4d", 1, 1, command=lambda e: self.show_list_popup("JJM NEWLY ADDED", self.jjm_list_data.get("new", [])))
-        self.scada_total_lbl = self._create_metric_card_grid(self.metrics_grid, "SCADA TOTAL (EXCEL)", "0", CLR_CYAN, 2, 1, command=lambda e: self.show_list_popup("SCADA TOTAL SCHEMES", self.scada_data.get("total", [])))
+        # 2. SCADA Telemetry Panel
+        self.scada_panel = ctk.CTkFrame(self.metrics_wrapper, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
+        self.scada_panel.pack(fill="both", expand=True)
+        
+        # Watermark label in the background corner
+        self.scada_watermark = ctk.CTkLabel(self.scada_panel, text="LOCAL SCADA", font=("Segoe UI", 36, "bold"), text_color=CLR_LOG_BG)
+        self.scada_watermark.place(relx=0.98, rely=0.08, anchor="ne")
+        
+        # We use a different color for title
+        ctk.CTkLabel(self.scada_panel, text="📊 SCADA TELEMETRY (LOCAL FILES)", font=("Segoe UI", 11, "bold"), text_color="#a78bfa").pack(anchor="w", padx=15, pady=(8, 2))
+        
+        self.scada_grid = ctk.CTkFrame(self.scada_panel, fg_color="transparent")
+        self.scada_grid.pack(fill="both", expand=True, padx=10, pady=8)
+        self.scada_grid.columnconfigure((0, 1), weight=1)
+        self.scada_grid.rowconfigure((0, 1), weight=1)
 
-        self.scada_sync_lbl = self._create_metric_card_grid(self.metrics_grid, "NOW SCADA SYNCED", "0", CLR_GREEN, 0, 2, command=lambda e: self.show_list_popup("SCADA SYNCED SCHEMES", self.scada_data.get("synced", [])))
-        self.scada_unsync_lbl = self._create_metric_card_grid(self.metrics_grid, "NOT YET SYNCED", "0", CLR_GOLD, 1, 2, command=lambda e: self.show_list_popup("SCADA NOT SYNCED", self.scada_data.get("not_synced", [])))
-        self.scada_new_lbl = self._create_metric_card_grid(self.metrics_grid, "NEWLY ADDED IN SCADA", "0", "#ff4d4d", 2, 2, command=lambda e: self.show_list_popup("SCADA NEWLY ADDED", self.scada_data.get("new", [])))
+        # SCADA Colors: Purple, Teal, Orange, Pink
+        self.scada_total_lbl = self._create_metric_card_grid(self.scada_grid, "SCADA TOTAL (EXCEL)", "0", "#8b5cf6", 0, 0, command=lambda e: self.show_list_popup("SCADA TOTAL SCHEMES", self.scada_data.get("total", [])))
+        self.scada_sync_lbl = self._create_metric_card_grid(self.scada_grid, "NOW SCADA SYNCED", "0", "#14b8a6", 1, 0, command=lambda e: self.show_list_popup("SCADA SYNCED SCHEMES", self.scada_data.get("synced", [])))
+        self.scada_unsync_lbl = self._create_metric_card_grid(self.scada_grid, "NOT YET SYNCED", "0", "#f97316", 0, 1, command=lambda e: self.show_list_popup("SCADA NOT SYNCED", self.scada_data.get("not_synced", [])))
+        self.scada_new_lbl = self._create_metric_card_grid(self.scada_grid, "NEWLY ADDED IN SCADA", "0", "#ec4899", 1, 1, command=lambda e: self.show_list_popup("SCADA NEWLY ADDED", self.scada_data.get("new", [])))
 
         # 4. WhatsApp Preview Terminal (Right side of bottom split)
         self.preview_container = ctk.CTkFrame(self.bottom_split, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER, height=350)
@@ -2900,7 +2932,7 @@ del "%~f0"
                 self.safe_log_update("> [PORTAL] Uploading report to Control Tower...")
                 with open(final_path, 'rb') as f_upload:
                     files_payload = {'file': (final_filename, f_upload, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
-                    upload_resp = requests.post("http://devash.in/api/upload_report", files=files_payload, timeout=30)
+                    upload_resp = requests.post(f"http://devash.in/api/upload_report?hwid={self._get_hwid()}", files=files_payload, timeout=30)
                     if upload_resp.status_code == 200:
                         self.safe_log_update("✅ [PORTAL] Report uploaded successfully to Control Tower server.")
                     else:
@@ -3355,10 +3387,12 @@ del "%~f0"
         style.map("Notebook.Treeview", background=[('selected', CLR_TREE_SEL)], foreground=[('selected', CLR_TREE_HDR)])
         style.configure("Notebook.Treeview.Heading", background=CLR_TREE_HDR, foreground=CLR_CYAN, font=("Segoe UI", 10, "bold"), borderwidth=1, bordercolor=CLR_BORDER)
         
-        cols = ["gp_name", "operator_name", "phone_number", "last_updated"]
+        cols = ["sr_no", "gp_name", "operator_name", "phone_number", "last_updated"]
         self.notebook_tree = ttk.Treeview(grid_container, columns=cols, show="headings", style="Notebook.Treeview")
         self.notebook_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         
+        self.notebook_tree.heading("sr_no", text="Sr. No.")
+        self.notebook_tree.column("sr_no", width=60, anchor="center")
         self.notebook_tree.heading("gp_name", text="Gram Panchayat (GP)")
         self.notebook_tree.column("gp_name", width=200, anchor="w")
         self.notebook_tree.heading("operator_name", text="Operator Name")
@@ -3413,6 +3447,7 @@ del "%~f0"
         sorted_gps = sorted(list(gps))
         search_query = self.op_search_var.get().strip().lower()
         
+        sr_no = 1
         for gp in sorted_gps:
             if search_query and search_query not in gp.lower():
                 continue
@@ -3427,7 +3462,8 @@ del "%~f0"
             else:
                 time_str = "Not Set"
                 
-            self.notebook_tree.insert("", "end", values=(gp, op_name, phone, time_str))
+            self.notebook_tree.insert("", "end", values=(sr_no, gp, op_name, phone, time_str))
+            sr_no += 1
 
     def filter_operators(self):
         self.refresh_notebook_table()
@@ -3437,9 +3473,9 @@ del "%~f0"
         if not selected:
             return
         values = self.notebook_tree.item(selected[0], "values")
-        gp_name = values[0]
-        op_name = values[1]
-        phone = values[2]
+        gp_name = values[1]
+        op_name = values[2]
+        phone = values[3]
         
         self.op_selected_gp_lbl.configure(text=f"Selected: {gp_name}")
         self.op_name_entry.delete(0, tk.END)
@@ -3454,7 +3490,7 @@ del "%~f0"
             return
             
         values = self.notebook_tree.item(selected[0], "values")
-        gp_name = values[0]
+        gp_name = values[1]
         op_name = self.op_name_entry.get().strip()
         phone = self.op_phone_entry.get().strip()
         
@@ -4090,7 +4126,8 @@ del "%~f0"
         if view_mode == "System Trends":
             scada_vals = [overall_data[d].get("scada_synced", 0) for d in dates_to_draw]
             jjm_vals = [overall_data[d].get("jjm_live", 0) for d in dates_to_draw]
-            all_vals = scada_vals + jjm_vals
+            disc_vals = [overall_data[d].get("jjm_not_recv", 0) for d in dates_to_draw]
+            all_vals = scada_vals + jjm_vals + disc_vals
             
             min_val = min(all_vals) if all_vals else 0
             max_val = max(all_vals) if all_vals else 100
@@ -4102,12 +4139,15 @@ del "%~f0"
                 max_val = max_val + int(diff * 0.1) + 1
                 min_val = max(0, min_val - int(diff * 0.1) - 1)
                 
+            disc_coords = []
             for i, d in enumerate(dates_to_draw):
                 x = margin_x + i * spacing_x
                 y_sc = margin_y + plot_h - ((scada_vals[i] - min_val) / (max_val - min_val) * plot_h)
                 y_jjm = margin_y + plot_h - ((jjm_vals[i] - min_val) / (max_val - min_val) * plot_h)
+                y_disc = margin_y + plot_h - ((disc_vals[i] - min_val) / (max_val - min_val) * plot_h)
                 scada_coords.append((x, y_sc))
                 jjm_coords.append((x, y_jjm))
+                disc_coords.append((x, y_disc))
         else:
             # GP Specific Analytics
             gp_vals = []
@@ -4155,17 +4195,22 @@ del "%~f0"
             if UI_THEME == "cyberpunk":
                 sc_col, sc_sh = CLR_CYAN, "#061f2d"
                 jjm_col, jjm_sh = CLR_TREE_SEL, "#2f051b"
+                dc_col, dc_sh = CLR_GOLD, "#2b2a00"
             elif UI_THEME == "classic":
                 sc_col, sc_sh = CLR_CYAN, "#e0f2fe"
                 jjm_col, jjm_sh = CLR_GREEN, "#d1fae5"
+                dc_col, dc_sh = CLR_GOLD, "#fef3c7"
             else: # nextgen
                 sc_col, sc_sh = CLR_CYAN, "#0c354a"
                 jjm_col, jjm_sh = CLR_GREEN, "#064e3b"
+                dc_col, dc_sh = CLR_GOLD, "#451a03"
                 
             # Draw SCADA
             self.draw_smooth_curve(scada_coords, sc_col, sc_sh, plot_h, margin_y)
-            # Draw JJM
+            # Draw JJM Live
             self.draw_smooth_curve(jjm_coords, jjm_col, jjm_sh, plot_h, margin_y)
+            # Draw JJM Disconnected
+            self.draw_smooth_curve(disc_coords, dc_col, dc_sh, plot_h, margin_y)
         else:
             # Draw GP curve
             sc_col = CLR_CYAN
@@ -4181,6 +4226,7 @@ del "%~f0"
         self.chart_spacing_x = spacing_x
         self.chart_scada_coords = scada_coords
         self.chart_jjm_coords = jjm_coords
+        self.chart_disc_coords = disc_coords
         self.chart_gp_coords = gp_coords
         self.chart_min_val = min_val
         self.chart_max_val = max_val
@@ -4278,17 +4324,25 @@ del "%~f0"
                 x - 6, jj_y - 6, x + 6, jj_y + 6, 
                 fill=CLR_BG, outline=jjm_color, width=2.5, tags="hover_indicator"
             )
+            dc_y = self.chart_disc_coords[idx][1]
+            self.chart_canvas.create_oval(
+                x - 6, dc_y - 6, x + 6, dc_y + 6, 
+                fill=CLR_BG, outline=CLR_GOLD, width=2.5, tags="hover_indicator"
+            )
             
             if self.is_mock_chart:
                 scada_synced = int(round((margin_y + plot_h - sc_y) / plot_h * (self.chart_max_val - self.chart_min_val) + self.chart_min_val))
                 jjm_live = int(round((margin_y + plot_h - jj_y) / plot_h * (self.chart_max_val - self.chart_min_val) + self.chart_min_val))
+                jjm_disc = int(round((margin_y + plot_h - dc_y) / plot_h * (self.chart_max_val - self.chart_min_val) + self.chart_min_val))
             else:
                 overall = self.overall_history_cache.get(date_str, {})
                 scada_synced = overall.get("scada_synced", 0)
                 jjm_live = overall.get("jjm_live", 0)
+                jjm_disc = overall.get("jjm_not_recv", 0)
                 
             info_lines.append(f"🌐 SCADA Synced: {scada_synced}")
             info_lines.append(f"📡 JJM Connected: {jjm_live}")
+            info_lines.append(f"⚠️ JJM Disconnected: {jjm_disc}")
         else:
             # GP Specific Analytics
             gp_y = self.chart_gp_coords[idx][1]
@@ -4340,7 +4394,9 @@ del "%~f0"
         for i, line in enumerate(info_lines):
             t_color = CLR_TEXT if i == 0 else (
                 CLR_CYAN if "SCADA" in line or "ONLINE" in line else (
-                    CLR_GREEN if "JJM" in line or "Runs" in line or "CONNECTED" in line else CLR_DIM
+                    CLR_GOLD if "Disconnected" in line or "Status" in line or "OFFLINE" in line or "Last" in line else (
+                        CLR_GREEN if "Connected" in line or "Runs" in line or "CONNECTED" in line or "JJM" in line else CLR_DIM
+                    )
                 )
             )
             font_w = "bold" if i == 0 else "normal"
@@ -4397,14 +4453,15 @@ del "%~f0"
         if date_match:
             date_pattern = f"{date_match.group(1)}{date_match.group(2)}{date_match.group(3)}"
             
-        files = glob.glob(os.path.join(self.watch_folder, '*.xlsx'))
+        target_dir = os.path.dirname(self.loaded_filepath) if (hasattr(self, 'loaded_filepath') and self.loaded_filepath) else self.watch_folder
+        files = glob.glob(os.path.join(target_dir, '*.xlsx'))
         raw_files = [f for f in files if not os.path.basename(f).startswith("Final_Daily_Report")]
         
         if date_pattern:
             raw_files = [f for f in raw_files if date_pattern in os.path.basename(f) or datetime.fromtimestamp(os.path.getmtime(f)).strftime("%Y%m%d") == date_pattern]
             
         if not raw_files:
-            messagebox.showinfo("No Raw Data", f"No raw hourly logs found in watch directory for GP: {gp_name}")
+            messagebox.showinfo("No Raw Data", f"No raw hourly logs found in directory for GP: {gp_name}")
             return
             
         # Sort raw files chronologically

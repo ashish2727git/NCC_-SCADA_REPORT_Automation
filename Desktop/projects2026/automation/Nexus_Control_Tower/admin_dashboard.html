@@ -125,6 +125,9 @@
     <button class="nav-item" onclick="showSection('remote',this);loadClients()">
       <span class="icon">📡</span> Remote Control
     </button>
+    <button class="nav-item" onclick="showSection('remote-chat',this); loadChatClients()">
+      <span class="icon">💬</span> Command Chat
+    </button>
     <button class="nav-item" onclick="showSection('logs',this)">
       <span class="icon">📜</span> Server Logs
     </button>
@@ -298,6 +301,52 @@
           <button class="btn btn-primary" onclick="issueCmd('FORCE_UPDATE')" style="background:#ef4444">🔄 Force Update & Restart</button>
         </div>
         <div id="cmd-status" style="margin-top:16px;font-size:.9rem;color:var(--muted)"></div>
+      </div>
+    </div>
+
+    <!-- REMOTE CHAT CONSOLE -->
+    <div id="sec-remote-chat" class="section">
+      <div class="page-header">
+        <h2>Client Chat Console</h2>
+        <p>Interact with client machines using command codes via a secure chat console</p>
+      </div>
+      <div class="card" style="display: flex; flex-direction: column; height: 580px; padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 12px;">
+        <!-- Client Selector -->
+        <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 12px;">
+          <div style="flex-grow: 1;">
+            <label style="margin-bottom: 4px; display: block; font-size: .8rem; color: var(--muted); text-transform: uppercase;">Select Target Client</label>
+            <select id="chat-client-select" style="padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: .95rem; width: 100%; outline: none;" onchange="changeChatClient()">
+              <option value="">Choose a client...</option>
+            </select>
+          </div>
+          <button class="btn" style="background: var(--subtle); color: var(--text); border: 1px solid var(--border); align-self: flex-end; padding: 10px 14px;" onclick="loadChatClients()">🔄 Refresh</button>
+        </div>
+
+        <!-- Chat Area -->
+        <div id="chat-messages-container" style="flex-grow: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; height: 320px;">
+          <!-- Welcome Message -->
+          <div style="display: flex; align-self: flex-start; max-width: 80%; background: var(--subtle); border: 1px solid var(--border); border-radius: 12px 12px 12px 0; padding: 10px 14px; flex-direction: column; gap: 4px;">
+            <span style="font-size: 0.75rem; color: var(--primary); font-weight: 600;">System Bot</span>
+            <span style="font-size: 0.9rem;">Hello Admin! Select a client machine above to start remote chatting. You can use the quick commands below or type `/help` for instructions.</span>
+            <span style="font-size: 0.65rem; color: var(--muted); text-align: right; display: block;">Just now</span>
+          </div>
+        </div>
+
+        <!-- Quick Buttons Panel -->
+        <div id="chat-quick-buttons" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; display: none;">
+          <button class="btn btn-sm" style="background: rgba(16, 185, 129, 0.15); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.3);" onclick="sendChatCmd('/scada')">🔄 /scada</button>
+          <button class="btn btn-sm" style="background: rgba(2, 132, 199, 0.15); color: #0284c7; border: 1px solid rgba(2, 132, 199, 0.3);" onclick="sendChatCmd('/jjm')">💧 /jjm</button>
+          <button class="btn btn-sm" style="background: rgba(139, 92, 246, 0.15); color: #8b5cf6; border: 1px solid rgba(139, 92, 246, 0.3);" onclick="sendChatCmd('/broadcast')">📤 /broadcast</button>
+          <button class="btn btn-sm" style="background: rgba(239, 68, 68, 0.15); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3);" onclick="sendChatCmd('/update')">🔄 /update</button>
+          <button class="btn btn-sm" style="background: rgba(245, 158, 11, 0.15); color: var(--warn); border: 1px solid rgba(245, 158, 11, 0.3);" onclick="sendChatCmd('/status')">🖥️ /status</button>
+          <button class="btn btn-sm" style="background: var(--subtle); color: var(--text); border: 1px solid var(--border);" onclick="sendChatCmd('/help')">❓ /help</button>
+        </div>
+
+        <!-- Message Input -->
+        <div style="display: flex; gap: 10px;">
+          <input type="text" id="chat-input" placeholder="Type a chat command (e.g. /scada)..." style="flex-grow: 1; margin-bottom: 0; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: .95rem; outline: none;" onkeypress="handleChatKeyPress(event)">
+          <button class="btn btn-primary" onclick="sendChatMessage()">Send 📤</button>
+        </div>
       </div>
     </div>
 
@@ -704,6 +753,209 @@ async function triggerRestore(key){
     }
   } catch(e){
     toast('Server offline', 'error');
+  }
+}
+
+// ── Command Chat Console ────────────────────────────────────
+let chatHwid = "";
+let chatClientName = "";
+let commandPollingInterval = null;
+
+async function loadChatClients(){
+  const sel = document.getElementById('chat-client-select');
+  sel.innerHTML = '<option value="">Choose a client...</option>';
+  try{
+    const r = await fetch('/api/admin/list_licenses');
+    const data = await r.json();
+    const bound = data.filter(l=>l.is_active && l.hwid);
+    if(!bound.length){ sel.innerHTML='<option value="">No active clients found</option>'; return; }
+    const now = Math.floor(Date.now() / 1000);
+    sel.innerHTML += bound.map(l=>{
+      const isOnline = now - l.last_seen <= 40;
+      const statusText = isOnline ? "🟢 Online" : "🔴 Offline";
+      return `<option value="${l.hwid}">${l.client_name} (${statusText})</option>`;
+    }).join('');
+    
+    if (chatHwid) sel.value = chatHwid;
+  } catch(e){ sel.innerHTML='<option value="">Cannot load clients</option>'; }
+}
+
+function changeChatClient(){
+  const sel = document.getElementById('chat-client-select');
+  chatHwid = sel.value;
+  chatClientName = sel.options[sel.selectedIndex]?.text.split(' (')[0] || "";
+  
+  const qbtn = document.getElementById('chat-quick-buttons');
+  if (chatHwid) {
+    qbtn.style.display = 'flex';
+    startChatPolling();
+  } else {
+    qbtn.style.display = 'none';
+    stopChatPolling();
+    document.getElementById('chat-messages-container').innerHTML = `
+      <div style="display: flex; align-self: flex-start; max-width: 80%; background: var(--subtle); border: 1px solid var(--border); border-radius: 12px 12px 12px 0; padding: 10px 14px; flex-direction: column; gap: 4px;">
+        <span style="font-size: 0.75rem; color: var(--primary); font-weight: 600;">System Bot</span>
+        <span style="font-size: 0.9rem;">Hello Admin! Select a client machine above to start remote chatting. You can use the quick commands below or type \`/help\` for instructions.</span>
+        <span style="font-size: 0.65rem; color: var(--muted); text-align: right; display: block;">Just now</span>
+      </div>
+    `;
+  }
+}
+
+function addChatBubble(sender, text, isSelf = false, senderRole = '') {
+  const container = document.getElementById('chat-messages-container');
+  const bubble = document.createElement('div');
+  
+  const align = isSelf ? 'flex-end' : 'flex-start';
+  const radius = isSelf ? '12px 12px 0 12px' : '12px 12px 12px 0';
+  const bg = isSelf ? 'rgba(59,130,246,0.15)' : 'var(--card)';
+  const border = isSelf ? '1px solid var(--primary)' : '1px solid var(--border)';
+  
+  let roleText = senderRole || (isSelf ? 'Admin (You)' : 'Client');
+  if (sender === 'System Bot') roleText = 'System Bot';
+  else if (sender === 'Client System') roleText = 'Client System';
+  
+  const roleColor = isSelf ? '#60a5fa' : (sender === 'System Bot' ? 'var(--primary)' : '#10b981');
+  
+  bubble.style.cssText = `display: flex; align-self: ${align}; max-width: 80%; background: ${bg}; border: ${border}; border-radius: ${radius}; padding: 10px 14px; flex-direction: column; gap: 4px;`;
+  
+  const timeStr = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  
+  let formattedText = text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<strong>$1</strong>')
+    .replace(/`(.*?)`/g, '<code class="mono" style="background:var(--surface);padding:2px 4px;border-radius:4px">$1</code>')
+    .replace(/\n/g, '<br>');
+    
+  bubble.innerHTML = `
+    <span style="font-size: 0.75rem; color: ${roleColor}; font-weight: 600;">${roleText}</span>
+    <span style="font-size: 0.9rem; white-space: pre-wrap;">${formattedText}</span>
+    <span style="font-size: 0.65rem; color: var(--muted); text-align: right; display: block;">${timeStr}</span>
+  `;
+  
+  container.appendChild(bubble);
+  container.scrollTop = container.scrollHeight;
+}
+
+function handleChatKeyPress(event) {
+  if (event.key === 'Enter') {
+    sendChatMessage();
+  }
+}
+
+function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  input.value = '';
+  
+  if (!chatHwid) {
+    addChatBubble("System Bot", "⚠️ Please select a target client first.", false, 'System');
+    return;
+  }
+  
+  sendChatCmd(cmd);
+}
+
+async function sendChatCmd(cmd) {
+  if (!chatHwid) return;
+  
+  try {
+    const r = await fetch('/api/admin/send_chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({hwid: chatHwid, message: cmd, admin_secret: ""})
+    });
+    if (r.ok) {
+      loadChatHistory(chatHwid);
+      toast('Command sent');
+    } else {
+      const err = await r.json();
+      toast(err.detail || 'Failed to send command', 'error');
+    }
+  } catch(e) {
+    toast('Server offline', 'error');
+  }
+}
+
+let chatPollingInterval = null;
+
+async function loadChatHistory(hwid) {
+  if (!hwid) return;
+  try {
+    const r = await fetch(`/api/admin/chat_history?hwid=${hwid}`);
+    if (!r.ok) return;
+    const messages = await r.json();
+    const container = document.getElementById('chat-messages-container');
+    
+    // Smooth check to only re-render if message count or last message content has changed
+    const currentBubbles = container.children.length;
+    let needsUpdate = currentBubbles !== messages.length;
+    
+    if (!needsUpdate && messages.length > 0 && currentBubbles > 0) {
+      const lastMsgText = messages[messages.length - 1].message;
+      const lastBubble = container.lastElementChild;
+      const lastBubbleTextSpan = lastBubble.children[1];
+      // Compare raw texts by stripping our HTML tags
+      const currentLastText = lastBubbleTextSpan.innerText;
+      if (lastMsgText !== currentLastText && !lastBubbleTextSpan.innerHTML.includes(lastMsgText.substring(0, 10))) {
+        needsUpdate = true;
+      }
+    }
+    
+    if (needsUpdate) {
+      container.innerHTML = '';
+      messages.forEach(m => {
+        const date = new Date(m.timestamp * 1000);
+        const timeStr = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        const isSelf = m.is_self;
+        
+        const align = isSelf ? 'flex-end' : 'flex-start';
+        const radius = isSelf ? '12px 12px 0 12px' : '12px 12px 12px 0';
+        const bg = isSelf ? 'rgba(59,130,246,0.15)' : 'var(--card)';
+        const border = isSelf ? '1px solid var(--primary)' : '1px solid var(--border)';
+        
+        let roleText = isSelf ? 'Admin (You)' : m.sender;
+        if (m.sender === 'System Bot') roleText = 'System Bot';
+        else if (m.sender === 'Client System') roleText = 'Client System';
+        
+        const roleColor = isSelf ? '#60a5fa' : (m.sender === 'System Bot' ? 'var(--primary)' : '#10b981');
+        
+        const bubble = document.createElement('div');
+        bubble.style.cssText = `display: flex; align-self: ${align}; max-width: 80%; background: ${bg}; border: ${border}; border-radius: ${radius}; padding: 10px 14px; flex-direction: column; gap: 4px;`;
+        
+        let formattedText = m.message
+          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.*?)\*/g, '<strong>$1</strong>')
+          .replace(/`(.*?)`/g, '<code class="mono" style="background:var(--surface);padding:2px 4px;border-radius:4px">$1</code>')
+          .replace(/\n/g, '<br>');
+          
+        bubble.innerHTML = `
+          <span style="font-size: 0.75rem; color: ${roleColor}; font-weight: 600;">${roleText}</span>
+          <span style="font-size: 0.9rem; white-space: pre-wrap;">${formattedText}</span>
+          <span style="font-size: 0.65rem; color: var(--muted); text-align: right; display: block;">${timeStr}</span>
+        `;
+        container.appendChild(bubble);
+      });
+      container.scrollTop = container.scrollHeight;
+    }
+  } catch(e) {
+    console.error("Error loading chat history:", e);
+  }
+}
+
+function startChatPolling() {
+  stopChatPolling();
+  loadChatHistory(chatHwid);
+  chatPollingInterval = setInterval(() => {
+    loadChatHistory(chatHwid);
+  }, 5000);
+}
+
+function stopChatPolling() {
+  if (chatPollingInterval) {
+    clearInterval(chatPollingInterval);
+    chatPollingInterval = null;
   }
 }
 

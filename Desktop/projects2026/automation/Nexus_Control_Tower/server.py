@@ -121,6 +121,16 @@ def init_db():
                     hwid TEXT DEFAULT ''
                  )''')
     
+    # Table for chat console messages
+    c.execute('''CREATE TABLE IF NOT EXISTS chat_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    hwid TEXT,
+                    sender TEXT,
+                    message TEXT,
+                    timestamp INTEGER,
+                    is_self INTEGER DEFAULT 0
+                 )''')
+    
     # SEED DEFAULT LICENSES IF EMPTY
     c.execute("SELECT COUNT(*) FROM licenses")
     if c.fetchone()[0] == 0:
@@ -365,6 +375,122 @@ def admin_list_licenses(request: Request):
         for r in rows
     ]
 
+@app.get("/api/admin/command_status")
+def get_command_status(hwid: str, request: Request):
+    if not check_admin_auth(request):
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT id, command, is_executed FROM remote_commands WHERE hwid=? ORDER BY id DESC LIMIT 10", (hwid,))
+    rows = c.fetchall()
+    conn.close()
+    return [{"id": r[0], "command": r[1], "is_executed": bool(r[2])} for r in rows]
+
+class ChatMessageSend(BaseModel):
+    hwid: str
+    message: str
+    admin_secret: str = ""
+
+@app.get("/api/admin/chat_history")
+def get_chat_history(hwid: str, request: Request):
+    if not check_admin_auth(request):
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT sender, message, timestamp, is_self FROM chat_messages WHERE hwid=? ORDER BY id ASC", (hwid,))
+    rows = c.fetchall()
+    conn.close()
+    return [{"sender": r[0], "message": r[1], "timestamp": r[2], "is_self": bool(r[3])} for r in rows]
+
+@app.post("/api/admin/send_chat")
+def send_chat_message(data: ChatMessageSend, request: Request):
+    if not check_admin_auth(request, data.admin_secret):
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    
+    # 1. Insert admin message
+    c.execute("INSERT INTO chat_messages (hwid, sender, message, timestamp, is_self) VALUES (?, ?, ?, ?, ?)",
+              (data.hwid, "Admin", data.message, int(time.time()), 1))
+    
+    # 2. Process command
+    lower_msg = data.message.lower().strip()
+    reply_text = None
+    
+    if lower_msg == "/help":
+        reply_text = (
+            "📖 **Available Console Commands:**\n"
+            "• `/scada` : Scrapes telemetry logs from SCADA.\n"
+            "• `/jjm` : Scrapes JJM portal metrics.\n"
+            "• `/broadcast` : Sends consolidated daily report on WhatsApp.\n"
+            "• `/update` : Forces OTA check and restart.\n"
+            "• `/status` : Checks connection details of client.\n"
+            "• `/clients` : Lists all connected active client machines."
+        )
+    elif lower_msg == "/status":
+        c.execute("SELECT client_name, last_seen, version FROM licenses WHERE hwid=?", (data.hwid,))
+        row = c.fetchone()
+        if row:
+            import datetime
+            time_str = datetime.datetime.fromtimestamp(row[1]).strftime('%d-%m-%Y %H:%M:%S') if row[1] > 0 else 'Never'
+            now = int(time.time())
+            is_online = now - row[1] <= 40
+            status_str = "🟢 ONLINE" if is_online else "🔴 OFFLINE"
+            reply_text = (
+                f"🖥️ **Client Machine Status:**\n"
+                f"Client: **{row[0]}**\n"
+                f"Connection: {status_str}\n"
+                f"Last heartbeat: {time_str}\n"
+                f"Version: v{row[2] or 'unknown'}\n"
+                f"HWID: `{data.hwid}`"
+            )
+        else:
+            reply_text = "⚠️ Client connection record not found."
+    elif lower_msg == "/clients":
+        c.execute("SELECT client_name, hwid, last_seen FROM licenses WHERE is_active=1 AND hwid != ''")
+        clients = c.fetchall()
+        if not clients:
+            reply_text = "📭 No active bound clients found."
+        else:
+            now = int(time.time())
+            lines = []
+            for i, (name, h, ls) in enumerate(clients):
+                is_online = now - ls <= 40
+                status_str = "🟢 ONLINE" if is_online else "🔴 OFFLINE"
+                lines.append(f"`{i+1}.` **{name}** ({status_str}) - `{h[:6]}...`")
+            reply_text = "**🖥 Connected Clients:**\n" + "\n".join(lines)
+    elif lower_msg in ("/scada", "/jjm", "/broadcast", "/update"):
+        api_cmd = ""
+        cmd_label = ""
+        if lower_msg == "/scada":
+            api_cmd = "PULL_DATA"
+            cmd_label = "PULL_DATA (SCADA & JJM)"
+        elif lower_msg == "/jjm":
+            api_cmd = "PULL_JJM"
+            cmd_label = "PULL_JJM (JJM Portal)"
+        elif lower_msg == "/broadcast":
+            api_cmd = "BROADCAST"
+            cmd_label = "BROADCAST (WhatsApp)"
+        elif lower_msg == "/update":
+            api_cmd = "FORCE_UPDATE"
+            cmd_label = "FORCE_UPDATE (OTA)"
+        
+        # Insert remote command
+        c.execute("INSERT INTO remote_commands (hwid, command) VALUES (?, ?)", (data.hwid, api_cmd))
+        reply_text = f"📨 Command `{cmd_label}` queued. Client will poll and execute this within 15 seconds."
+    else:
+        reply_text = f"❌ Unknown command: \"{data.message}\". Type /help to see valid commands."
+        
+    if reply_text:
+        c.execute("INSERT INTO chat_messages (hwid, sender, message, timestamp, is_self) VALUES (?, ?, ?, ?, ?)",
+                  (data.hwid, "System Bot", reply_text, int(time.time()), 0))
+        
+    conn.commit()
+    conn.close()
+    threading.Thread(target=sync_db_to_s3, daemon=True).start()
+    return {"status": "success"}
+
 @app.post("/api/admin/issue_command")
 def issue_remote_command(data: CommandIssue, request: Request):
     if not check_admin_auth(request, data.admin_secret):
@@ -418,6 +544,18 @@ def poll_commands(hwid: str, request: Request, version: str = ""):
 def ack_command(data: CommandAck):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    # Log execution success message to chat console if the command exists
+    try:
+        c.execute("SELECT hwid, command FROM remote_commands WHERE id=?", (data.command_id,))
+        row = c.fetchone()
+        if row:
+            hwid, cmd = row
+            clean_name = "SCADA & JJM Pull" if cmd == "PULL_DATA" else ("JJM Pull" if cmd == "PULL_JJM" else ("Broadcast" if cmd == "BROADCAST" else cmd))
+            c.execute("INSERT INTO chat_messages (hwid, sender, message, timestamp, is_self) VALUES (?, ?, ?, ?, ?)",
+                      (hwid, "Client System", f"✅ Executed task: *{clean_name}* successfully. (Ref: #{data.command_id})", int(time.time()), 0))
+    except Exception as e_db:
+        logger.error(f"[DB] Failed to log command ack to chat: {e_db}")
+        
     c.execute("UPDATE remote_commands SET is_executed=1 WHERE id=?", (data.command_id,))
     conn.commit()
     conn.close()
@@ -510,7 +648,7 @@ REPORTS_DIR = "reports"
 os.makedirs(REPORTS_DIR, exist_ok=True)
 
 @app.post("/api/upload_report")
-async def upload_report(file: UploadFile = File(...)):
+async def upload_report(file: UploadFile = File(...), hwid: str = None):
     filename = file.filename
     if not filename.endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="Only Excel (.xlsx) reports are allowed.")
@@ -522,6 +660,17 @@ async def upload_report(file: UploadFile = File(...)):
     
     logger.info(f"[REPORT] Received report file: {filename}")
     
+    if hwid:
+        try:
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute("INSERT INTO chat_messages (hwid, sender, message, timestamp, is_self) VALUES (?, ?, ?, ?, ?)",
+                      (hwid, "Client System", f"📤 Uploaded final daily report: *{filename}* to Control Tower server.", int(time.time()), 0))
+            conn.commit()
+            conn.close()
+        except Exception as e_db:
+            logger.error(f"[DB] Failed to log report upload to chat: {e_db}")
+            
     try:
         s3 = get_s3_client()
         s3.upload_file(file_path, S3_BUCKET, f"reports/{filename}")
