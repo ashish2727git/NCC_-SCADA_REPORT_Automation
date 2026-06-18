@@ -1721,24 +1721,22 @@ del "%~f0"
         )
         self.view_metrics_btn.pack(side="right", padx=(0, 8), pady=10)
 
-        # ── ZOOM CONTROL ROW (separate row below) ──────────────────
-        zoom_bar = ctk.CTkFrame(self.tab_history, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
-        zoom_bar.pack(fill="x", padx=15, pady=(4, 5))
+        # ── ZOOM CONTROL — compact, bottom-right of the controls bar ──
+        zoom_frame = ctk.CTkFrame(controls_frame, fg_color="transparent")
+        zoom_frame.pack(side="right", padx=(0, 6), pady=8)
 
-        ctk.CTkLabel(zoom_bar, text="\U0001f50d  Zoom:",
-                     font=("Segoe UI", 11, "bold"), text_color=CLR_DIM).pack(side="left", padx=(15, 8), pady=8)
+        ctk.CTkLabel(zoom_frame, text="\U0001f50d",
+                     font=("Segoe UI", 13), text_color=CLR_DIM).pack(side="left", padx=(0, 3))
         self.zoom_var = tk.IntVar(value=100)
-        self.zoom_label = ctk.CTkLabel(zoom_bar, text="100%",
-                                        font=("Segoe UI", 11, "bold"), text_color=CLR_CYAN, width=46)
-        self.zoom_label.pack(side="left", padx=(0, 6))
+        self.zoom_label = ctk.CTkLabel(zoom_frame, text="100%",
+                                        font=("Segoe UI", 10, "bold"), text_color=CLR_CYAN, width=38)
+        self.zoom_label.pack(side="left")
         self.zoom_slider = ctk.CTkSlider(
-            zoom_bar, from_=10, to=200, number_of_steps=38,
-            variable=self.zoom_var, width=240,
+            zoom_frame, from_=10, to=200, number_of_steps=38,
+            variable=self.zoom_var, width=160,
             command=self._on_zoom_change
         )
-        self.zoom_slider.pack(side="left", pady=8)
-        ctk.CTkLabel(zoom_bar, text="Drag to resize table columns",
-                     font=("Segoe UI", 9), text_color=CLR_DIM).pack(side="left", padx=(10, 0))
+        self.zoom_slider.pack(side="left", padx=(4, 0))
 
         # Grid View Frame
         self.grid_frame = ctk.CTkFrame(self.tab_history, fg_color="transparent")
@@ -2322,14 +2320,21 @@ del "%~f0"
 
 
     def _create_metric_card_grid(self, parent, title, val, color, row, col, command=None):
-        card = ctk.CTkFrame(parent, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
+        card = ctk.CTkFrame(parent, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER,
+                            height=62)  # fixed min-height so numbers never overflow
         card.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
-        
-        title_lbl = ctk.CTkLabel(card, text=title, font=("Segoe UI", 10, "bold"), text_color=CLR_DIM, fg_color="transparent")
-        title_lbl.pack(pady=(12, 0), anchor="center")
-        lbl = ctk.CTkLabel(card, text=val, font=("Segoe UI", 24, "bold"), text_color=color, fg_color="transparent")
-        lbl.pack(expand=True, anchor="center")
-        
+        card.pack_propagate(False)  # prevent children from resizing the card
+
+        title_lbl = ctk.CTkLabel(card, text=title,
+                                  font=("Segoe UI", 9, "bold"),
+                                  text_color=CLR_DIM, fg_color="transparent",
+                                  wraplength=110)
+        title_lbl.pack(pady=(6, 0), anchor="center")
+        lbl = ctk.CTkLabel(card, text=val,
+                           font=("Segoe UI", 20, "bold"),
+                           text_color=color, fg_color="transparent")
+        lbl.pack(expand=True, anchor="center", pady=(0, 4))
+
         if command:
             card.bind("<Button-1>", command)
             title_lbl.bind("<Button-1>", command)
@@ -2337,7 +2342,7 @@ del "%~f0"
             card.configure(cursor="hand2")
             lbl.configure(cursor="hand2")
             title_lbl.configure(cursor="hand2")
-            
+
         return lbl
 
     def _create_metric_card(self, parent, title, val, color, command=None):
