@@ -1300,16 +1300,35 @@ del "%~f0"
         self.metrics_wrapper = ctk.CTkFrame(self.bottom_split, fg_color="transparent")
         self.metrics_wrapper.pack(side="left", fill="both", expand=True, padx=(0, 10))
 
-        # 1. JJM Portal Panel
-        self.jjm_panel = ctk.CTkFrame(self.metrics_wrapper, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
-        self.jjm_panel.pack(fill="both", expand=True, pady=(0, 10))
-        
+        # 1. JJM Portal Panel — Cyan accent theme
+        # Outer wrapper with strong LEFT border accent (cyan) to visually identify JJM section
+        jjm_outer = ctk.CTkFrame(self.metrics_wrapper, fg_color="#e0f7fa" if UI_THEME == "classic" else "#0d2333",
+                                  border_width=0, corner_radius=10)
+        jjm_outer.pack(fill="both", expand=True, pady=(0, 12))
+
+        # Left accent bar (thick cyan stripe)
+        jjm_accent = ctk.CTkFrame(jjm_outer, fg_color=CLR_CYAN, width=5, corner_radius=10)
+        jjm_accent.pack(side="left", fill="y", padx=(0, 0))
+        jjm_accent.pack_propagate(False)
+
+        self.jjm_panel = ctk.CTkFrame(jjm_outer, fg_color=CLR_CARD, border_width=1,
+                                       border_color=CLR_CYAN, corner_radius=8)
+        self.jjm_panel.pack(side="left", fill="both", expand=True)
+
         # Watermark label in the background corner
-        self.jjm_watermark = ctk.CTkLabel(self.jjm_panel, text="JJM PORTAL", font=("Segoe UI", 36, "bold"), text_color=CLR_LOG_BG)
+        self.jjm_watermark = ctk.CTkLabel(self.jjm_panel, text="JJM PORTAL",
+                                           font=("Segoe UI", 36, "bold"), text_color=CLR_LOG_BG)
         self.jjm_watermark.place(relx=0.98, rely=0.08, anchor="ne")
-        
-        ctk.CTkLabel(self.jjm_panel, text="🌐 JJM PORTAL STATUS (PORTAL METRICS)", font=("Segoe UI", 11, "bold"), text_color=CLR_CYAN).pack(anchor="w", padx=15, pady=(8, 2))
-        
+
+        # Header row with title + badge
+        jjm_header = ctk.CTkFrame(self.jjm_panel, fg_color="transparent")
+        jjm_header.pack(fill="x", padx=15, pady=(8, 2))
+        ctk.CTkLabel(jjm_header, text="\U0001f310 JJM PORTAL STATUS (PORTAL METRICS)",
+                     font=("Segoe UI", 11, "bold"), text_color=CLR_CYAN).pack(side="left")
+        ctk.CTkLabel(jjm_header, text=" JJM ",
+                     font=("Segoe UI", 9, "bold"), text_color="#ffffff",
+                     fg_color=CLR_CYAN, corner_radius=4, padx=6, pady=2).pack(side="right", padx=(0, 2))
+
         self.jjm_grid = ctk.CTkFrame(self.jjm_panel, fg_color="transparent")
         self.jjm_grid.pack(fill="both", expand=True, padx=10, pady=8)
         self.jjm_grid.columnconfigure((0, 1, 2), weight=1)
@@ -1320,28 +1339,46 @@ del "%~f0"
         self.jjm_not_recv_lbl = self._create_metric_card_grid(self.jjm_grid, "DATA NOT RECEIVED", "0", CLR_GOLD, 2, 0, command=lambda e: self.show_list_popup("JJM NOT RECEIVED", self.jjm_list_data.get("not_recv", [])))
         self.jjm_leftover_lbl = self._create_metric_card_grid(self.jjm_grid, "OFF-GRID / MISSING", "0", "#ef4444", 0, 1, command=lambda e: self.show_list_popup("JJM OFF-GRID / MISSING", self.jjm_list_data.get("leftover", [])))
         self.jjm_new_lbl = self._create_metric_card_grid(self.jjm_grid, "NEWLY ADDED IN JJM", "0", "#fb7185", 1, 1, command=lambda e: self.show_list_popup("JJM NEWLY ADDED", self.jjm_list_data.get("new", [])))
-        
-        # 6th slot in JJM grid is left empty/symmetric
+
+        # 6th slot in JJM grid is left empty/symmetric (JJM has 5 boxes, SCADA has 4)
         self.jjm_empty_lbl = ctk.CTkFrame(self.jjm_grid, fg_color="transparent")
         self.jjm_empty_lbl.grid(row=1, column=2, padx=5, pady=5, sticky="nsew")
 
-        # 2. SCADA Telemetry Panel
-        self.scada_panel = ctk.CTkFrame(self.metrics_wrapper, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
-        self.scada_panel.pack(fill="both", expand=True)
-        
+        # 2. SCADA Telemetry Panel — Purple accent theme
+        # Outer wrapper with strong LEFT border accent (purple) to visually identify SCADA section
+        scada_outer = ctk.CTkFrame(self.metrics_wrapper, fg_color="#f5f0ff" if UI_THEME == "classic" else "#1a0d33",
+                                    border_width=0, corner_radius=10)
+        scada_outer.pack(fill="both", expand=True)
+
+        # Left accent bar (thick purple stripe)
+        scada_accent = ctk.CTkFrame(scada_outer, fg_color="#8b5cf6", width=5, corner_radius=10)
+        scada_accent.pack(side="left", fill="y", padx=(0, 0))
+        scada_accent.pack_propagate(False)
+
+        self.scada_panel = ctk.CTkFrame(scada_outer, fg_color=CLR_CARD, border_width=1,
+                                         border_color="#8b5cf6", corner_radius=8)
+        self.scada_panel.pack(side="left", fill="both", expand=True)
+
         # Watermark label in the background corner
-        self.scada_watermark = ctk.CTkLabel(self.scada_panel, text="LOCAL SCADA", font=("Segoe UI", 36, "bold"), text_color=CLR_LOG_BG)
+        self.scada_watermark = ctk.CTkLabel(self.scada_panel, text="LOCAL SCADA",
+                                             font=("Segoe UI", 36, "bold"), text_color=CLR_LOG_BG)
         self.scada_watermark.place(relx=0.98, rely=0.08, anchor="ne")
-        
-        # We use a different color for title
-        ctk.CTkLabel(self.scada_panel, text="📊 SCADA TELEMETRY (LOCAL FILES)", font=("Segoe UI", 11, "bold"), text_color="#a78bfa").pack(anchor="w", padx=15, pady=(8, 2))
-        
+
+        # Header row with title + badge
+        scada_header = ctk.CTkFrame(self.scada_panel, fg_color="transparent")
+        scada_header.pack(fill="x", padx=15, pady=(8, 2))
+        ctk.CTkLabel(scada_header, text="\U0001f4ca SCADA TELEMETRY (LOCAL FILES)",
+                     font=("Segoe UI", 11, "bold"), text_color="#a78bfa").pack(side="left")
+        ctk.CTkLabel(scada_header, text=" SCADA ",
+                     font=("Segoe UI", 9, "bold"), text_color="#ffffff",
+                     fg_color="#8b5cf6", corner_radius=4, padx=6, pady=2).pack(side="right", padx=(0, 2))
+
         self.scada_grid = ctk.CTkFrame(self.scada_panel, fg_color="transparent")
         self.scada_grid.pack(fill="both", expand=True, padx=10, pady=8)
         self.scada_grid.columnconfigure((0, 1), weight=1)
         self.scada_grid.rowconfigure((0, 1), weight=1)
 
-        # SCADA Colors: Purple, Teal, Orange, Pink
+        # SCADA Colors: Purple, Teal, Orange, Pink (2×2 grid = 4 boxes)
         self.scada_total_lbl = self._create_metric_card_grid(self.scada_grid, "SCADA TOTAL (EXCEL)", "0", "#8b5cf6", 0, 0, command=lambda e: self.show_list_popup("SCADA TOTAL SCHEMES", self.scada_data.get("total", [])))
         self.scada_sync_lbl = self._create_metric_card_grid(self.scada_grid, "NOW SCADA SYNCED", "0", "#14b8a6", 1, 0, command=lambda e: self.show_list_popup("SCADA SYNCED SCHEMES", self.scada_data.get("synced", [])))
         self.scada_unsync_lbl = self._create_metric_card_grid(self.scada_grid, "NOT YET SYNCED", "0", "#f97316", 0, 1, command=lambda e: self.show_list_popup("SCADA NOT SYNCED", self.scada_data.get("not_synced", [])))
@@ -1413,85 +1450,91 @@ del "%~f0"
             json.dump({"tg_token": self.token_var.get().strip()}, f)
 
     def setup_history_ui(self):
-        # 📂 HISTORICAL VIEWER Tab controls
+        # ── HISTORICAL VIEWER: Top Control Bar ──────────────────────
         controls_frame = ctk.CTkFrame(self.tab_history, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
-        controls_frame.pack(fill="x", padx=15, pady=(10, 5))
+        controls_frame.pack(fill="x", padx=15, pady=(10, 0))
 
-        # LEFT: Calendar picker block
+        # LEFT: Report Date label + date display pill + calendar button + refresh
         date_block = ctk.CTkFrame(controls_frame, fg_color="transparent")
-        date_block.pack(side="left", padx=15, pady=12)
+        date_block.pack(side="left", padx=15, pady=10)
 
-        ctk.CTkLabel(date_block, text="📅 Report Date:", font=("Segoe UI", 11, "bold"), text_color=CLR_DIM).pack(anchor="w", pady=(0, 4))
+        ctk.CTkLabel(date_block, text="\U0001f4c5 Report Date:",
+                     font=("Segoe UI", 11, "bold"), text_color=CLR_DIM).pack(anchor="w", pady=(0, 4))
 
         picker_row = ctk.CTkFrame(date_block, fg_color="transparent")
         picker_row.pack(fill="x")
 
         self.selected_date_var = tk.StringVar(value="No reports found")
+        # Date pill: prominent background so the selected date is always clearly visible
         self.cal_date_display = ctk.CTkLabel(
             picker_row,
             textvariable=self.selected_date_var,
-            font=("Segoe UI", 13, "bold"),
-            text_color=CLR_CYAN,
-            fg_color="#1e293b",
-            corner_radius=6,
-            padx=12, pady=6,
-            width=160
+            font=("Segoe UI", 14, "bold"),
+            text_color="#ffffff",
+            fg_color="#0ea5e9",
+            corner_radius=8,
+            padx=14, pady=7,
+            width=170
         )
         self.cal_date_display.pack(side="left", padx=(0, 8))
 
         self.cal_open_btn = ctk.CTkButton(
             picker_row,
-            text="📆 Open Calendar",
+            text="\U0001f4c6 Open Calendar",
             font=("Segoe UI", 11, "bold"),
-            fg_color="#0ea5e9", hover_color="#0284c7",
-            text_color="#ffffff", height=34, width=140,
+            fg_color="#1e293b", hover_color="#334155",
+            text_color="#f1f5f9", border_width=1, border_color="#0ea5e9",
+            height=36, width=145,
             command=self._open_calendar_picker
         )
         self.cal_open_btn.pack(side="left")
 
         self.refresh_dates_btn = ctk.CTkButton(
-            picker_row, text="🔄", width=34, height=34,
+            picker_row, text="\U0001f504", width=36, height=36,
             fg_color="transparent", border_width=1, border_color=CLR_BORDER,
             text_color=CLR_TEXT, font=("Segoe UI", 14),
             command=self.refresh_historical_dates
         )
         self.refresh_dates_btn.pack(side="left", padx=(6, 0))
 
-        # MIDDLE: Zoom Control
-        zoom_sep = ctk.CTkFrame(controls_frame, fg_color=CLR_BORDER, width=1)
-        zoom_sep.pack(side="left", fill="y", padx=16, pady=8)
-
-        zoom_block = ctk.CTkFrame(controls_frame, fg_color="transparent")
-        zoom_block.pack(side="left", pady=12)
-        ctk.CTkLabel(zoom_block, text="🔍 Zoom:", font=("Segoe UI", 11, "bold"), text_color=CLR_DIM).pack(anchor="w", pady=(0, 4))
-        zoom_row = ctk.CTkFrame(zoom_block, fg_color="transparent")
-        zoom_row.pack(fill="x")
-        self.zoom_var = tk.IntVar(value=100)
-        self.zoom_label = ctk.CTkLabel(zoom_row, text="100%", font=("Segoe UI", 11, "bold"), text_color=CLR_CYAN, width=44)
-        self.zoom_label.pack(side="left", padx=(0, 6))
-        self.zoom_slider = ctk.CTkSlider(
-            zoom_row, from_=10, to=200, number_of_steps=38,
-            variable=self.zoom_var, width=180,
-            command=self._on_zoom_change
-        )
-        self.zoom_slider.pack(side="left")
-
-        # RIGHT: Save button
+        # RIGHT side of top bar: Hourly Metrics + Save Changes buttons
         self.save_edit_btn = ctk.CTkButton(
-            controls_frame, text="💾 Save Changes",
+            controls_frame, text="\U0001f4be Save Changes",
             fg_color=CLR_GREEN, hover_color="#059669",
-            text_color="#ffffff", command=self.save_historical_changes, state="disabled"
+            text_color="#ffffff", height=36,
+            command=self.save_historical_changes, state="disabled"
         )
-        self.save_edit_btn.pack(side="right", padx=15, pady=12)
+        self.save_edit_btn.pack(side="right", padx=(0, 15), pady=10)
 
-        # View Hourly GP Metrics Button
+        # Hourly GP Metrics button — solid colored so text is always readable
         self.view_metrics_btn = ctk.CTkButton(
-            controls_frame, text="🔍 View Hourly GP Metrics",
-            fg_color="transparent", border_width=1, border_color=CLR_CYAN,
-            text_color=CLR_CYAN, font=("Segoe UI", 12, "bold"),
+            controls_frame, text="\U0001f55b  Hourly GP Metrics",
+            fg_color="#0f172a", hover_color="#1e293b",
+            border_width=1, border_color=CLR_CYAN,
+            text_color=CLR_CYAN, font=("Segoe UI", 11, "bold"),
+            height=36,
             command=self.view_gp_hourly_metrics
         )
-        self.view_metrics_btn.pack(side="right", padx=(0, 10), pady=12)
+        self.view_metrics_btn.pack(side="right", padx=(0, 8), pady=10)
+
+        # ── ZOOM CONTROL ROW (separate row below) ──────────────────
+        zoom_bar = ctk.CTkFrame(self.tab_history, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
+        zoom_bar.pack(fill="x", padx=15, pady=(4, 5))
+
+        ctk.CTkLabel(zoom_bar, text="\U0001f50d  Zoom:",
+                     font=("Segoe UI", 11, "bold"), text_color=CLR_DIM).pack(side="left", padx=(15, 8), pady=8)
+        self.zoom_var = tk.IntVar(value=100)
+        self.zoom_label = ctk.CTkLabel(zoom_bar, text="100%",
+                                        font=("Segoe UI", 11, "bold"), text_color=CLR_CYAN, width=46)
+        self.zoom_label.pack(side="left", padx=(0, 6))
+        self.zoom_slider = ctk.CTkSlider(
+            zoom_bar, from_=10, to=200, number_of_steps=38,
+            variable=self.zoom_var, width=240,
+            command=self._on_zoom_change
+        )
+        self.zoom_slider.pack(side="left", pady=8)
+        ctk.CTkLabel(zoom_bar, text="Drag to resize table columns",
+                     font=("Segoe UI", 9), text_color=CLR_DIM).pack(side="left", padx=(10, 0))
 
         # Grid View Frame
         self.grid_frame = ctk.CTkFrame(self.tab_history, fg_color="transparent")
@@ -1662,6 +1705,25 @@ del "%~f0"
                 cal.calevent_create(dt, "Raw Data", "raw_day")
         cal.tag_config("report_day", background="#0ea5e9", foreground="#0f172a")
         cal.tag_config("raw_day",    background="#475569", foreground="#f1f5f9")
+
+        # Live preview: show selected date in a prominent pill below the calendar
+        preview_frame = ctk.CTkFrame(popup, fg_color="transparent")
+        preview_frame.pack(fill="x", padx=20, pady=(0, 4))
+        ctk.CTkLabel(preview_frame, text="Selected:", font=("Segoe UI", 10), text_color=CLR_DIM).pack(side="left", padx=(0, 8))
+        self._cal_preview_var = tk.StringVar(value=cal.get_date())
+        preview_pill = ctk.CTkLabel(
+            preview_frame,
+            textvariable=self._cal_preview_var,
+            font=("Segoe UI", 13, "bold"),
+            text_color="#ffffff", fg_color="#0ea5e9",
+            corner_radius=8, padx=12, pady=4
+        )
+        preview_pill.pack(side="left")
+
+        def _on_cal_date_selected(event=None):
+            self._cal_preview_var.set(cal.get_date())
+
+        cal.bind("<<CalendarSelected>>", _on_cal_date_selected)
 
         btn_row = ctk.CTkFrame(popup, fg_color="transparent")
         btn_row.pack(fill="x", padx=20, pady=(8, 16))
