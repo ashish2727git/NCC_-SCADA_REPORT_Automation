@@ -48,7 +48,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "15.9"
+CLIENT_VERSION = "16.0"
 
 def parse_version(version_str):
     """Parses a version string like '15.4-beta' or '15.5' into a comparable tuple.
@@ -527,16 +527,16 @@ class NexusSyncPro(ctk.CTk):
         scroll.pack(fill="both", expand=True, padx=20, pady=16)
 
         features = [
-            ("🔄", "Interactive Update Manager",
-             "Over-The-Air updates now feature a real-time download progress bar and installation status display."),
-            ("🔌", "Remote Force Updates",
-             "Administrators can now remotely trigger immediate updates and restarts directly from the Control Tower admin dashboard."),
-            ("🌐", "WhatsApp Debug Chrome Profile",
-             "Open the client's dedicated WhatsApp Chrome profile using a sidebar button for troubleshooting and manual re-login."),
-            ("📡", "Control Tower Version Reporting",
-             "Connected clients now report their active running version, displayed on the Control Tower admin panel."),
-            ("🔒", "Hardware-Bound Licensing",
-             "Each license key now permanently locks to your specific PC hardware, preventing unauthorized duplicate activations."),
+            ("\U0001f3a8", "JJM & SCADA Panel Redesign",
+             "JJM and SCADA metric tiles are now visually separated with distinct cyan and purple color themes, left-accent stripes, and color-coded section badges for instant identification."),
+            ("\u2699\ufe0f", "Dashboard Layout Customizer",
+             "A new Layout Settings panel lets you resize Log Terminals, JJM Panel, SCADA Panel, and WhatsApp Preview tiles using live sliders. Includes Compact, Default, and Spacious presets. Layout is saved and restored on every launch."),
+            ("\U0001f4c5", "Historical Viewer — Date Display Fix",
+             "The Report Date box is now a bright solid cyan pill with white bold text, always clearly readable. The calendar popup shows a live selected-date preview that updates as you click days."),
+            ("\U0001f50d", "Historical Viewer — Zoom & Hourly Button Fix",
+             "The Zoom slider has been moved to its own dedicated row below the controls bar. The Hourly GP Metrics button now has a solid dark background with clearly visible cyan text."),
+            ("\U0001f4ac", "Admin Command Chat Console",
+             "A full Telegram-style command chat panel is now available in the Admin Dashboard. Select a client and send commands like /scada, /jjm, /status, /broadcast directly — responses appear as live chat bubbles."),
         ]
 
         for icon, title, desc in features:
