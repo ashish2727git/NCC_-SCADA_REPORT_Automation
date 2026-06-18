@@ -512,7 +512,7 @@ async function loadLicenses(){
         <td><span class="badge ${l.is_active?'badge-active':'badge-revoked'}">${l.is_active?'Active':'Revoked'}</span></td>
         <td><span class="badge badge-unbound">${l.hwid||'Unbound'}</span></td>
         <td>${liveStatus}</td>
-        <td>${l.is_active?`<button class="btn btn-danger btn-sm" onclick="quickRevoke('${l.key}')">Revoke</button>`:'—'}</td>
+        <td>${l.is_active?`<button class="btn btn-danger btn-sm" onclick="quickRevoke('${l.key}')">Revoke</button>`:`<button class="btn btn-danger btn-sm" style="background:rgba(239,68,68,0.35);color:#ff5555;font-weight:bold;" onclick="quickDelete('${l.key}')">Delete</button>`}</td>
       </tr>`;
     }).join('');
   } catch(e){
@@ -523,6 +523,12 @@ async function loadLicenses(){
 async function quickRevoke(key){
   if(!confirm(`Revoke ${key}?`)) return;
   await doRevoke(key);
+  loadLicenses();
+}
+
+async function quickDelete(key){
+  if(!confirm(`Permanently delete license key ${key}? This action cannot be undone.`)) return;
+  await doDelete(key);
   loadLicenses();
 }
 
@@ -541,6 +547,18 @@ async function doRevoke(key){
       body: JSON.stringify({key, admin_secret: ""})
     });
     if(r.ok) toast(`Key ${key} revoked`);
+    else { const e=await r.json(); toast(e.detail,'error'); }
+  } catch(e){ toast('Cannot reach server','error'); }
+}
+
+async function doDelete(key){
+  try{
+    const r = await fetch('/api/admin/delete_license',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({key, admin_secret: ""})
+    });
+    if(r.ok) toast(`Key ${key} deleted successfully`);
     else { const e=await r.json(); toast(e.detail,'error'); }
   } catch(e){ toast('Cannot reach server','error'); }
 }

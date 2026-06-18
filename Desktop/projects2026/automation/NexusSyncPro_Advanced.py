@@ -1358,10 +1358,13 @@ del "%~f0"
         self.jjm_grid.columnconfigure((0, 1, 2), weight=1)
         self.jjm_grid.rowconfigure((0, 1), weight=1)
 
+        # Row 0: TOTAL JJM | OFF-GRID / MISSING | DATA NOT RECEIVED
         self.jjm_total_lbl = self._create_metric_card_grid(self.jjm_grid, "TOTAL JJM SCHEMES", "0", CLR_CYAN, 0, 0, command=lambda e: self.show_list_popup("JJM TOTAL", self.jjm_list_data.get("total", [])))
-        self.jjm_live_lbl = self._create_metric_card_grid(self.jjm_grid, "LIVE CONNECTED", "0", CLR_GREEN, 1, 0, command=lambda e: self.show_list_popup("JJM LIVE CONNECTED", self.jjm_list_data.get("live", [])))
-        self.jjm_not_recv_lbl = self._create_metric_card_grid(self.jjm_grid, "DATA NOT RECEIVED", "0", CLR_GOLD, 2, 0, command=lambda e: self.show_list_popup("JJM NOT RECEIVED", self.jjm_list_data.get("not_recv", [])))
         self.jjm_leftover_lbl = self._create_metric_card_grid(self.jjm_grid, "OFF-GRID / MISSING", "0", "#ef4444", 0, 1, command=lambda e: self.show_list_popup("JJM OFF-GRID / MISSING", self.jjm_list_data.get("leftover", [])))
+        self.jjm_not_recv_lbl = self._create_metric_card_grid(self.jjm_grid, "DATA NOT RECEIVED", "0", CLR_GOLD, 0, 2, command=lambda e: self.show_list_popup("JJM NOT RECEIVED", self.jjm_list_data.get("not_recv", [])))
+
+        # Row 1: LIVE CONNECTED | NEWLY ADDED | (empty spacer)
+        self.jjm_live_lbl = self._create_metric_card_grid(self.jjm_grid, "LIVE CONNECTED", "0", CLR_GREEN, 1, 0, command=lambda e: self.show_list_popup("JJM LIVE CONNECTED", self.jjm_list_data.get("live", [])))
         self.jjm_new_lbl = self._create_metric_card_grid(self.jjm_grid, "NEWLY ADDED IN JJM", "0", "#fb7185", 1, 1, command=lambda e: self.show_list_popup("JJM NEWLY ADDED", self.jjm_list_data.get("new", [])))
 
         # 6th slot in JJM grid is left empty/symmetric (JJM has 5 boxes, SCADA has 4)
@@ -1860,8 +1863,8 @@ del "%~f0"
             font=("Segoe UI", 15, "bold"), text_color=CLR_CYAN
         ).pack(pady=(16, 4))
         ctk.CTkLabel(
-            popup, text="🟢 Blue = Final Report  │  ⚪ Grey = Raw data only",
-            font=("Segoe UI", 10), text_color=CLR_DIM
+            popup, text="🟢 Green Text = Available Data",
+            font=("Segoe UI", 10, "bold"), text_color=CLR_DIM
         ).pack(pady=(0, 10))
 
         current_str = self.selected_date_var.get()
@@ -1898,15 +1901,10 @@ del "%~f0"
         )
         cal.pack(padx=20, pady=6, fill="both", expand=True)
 
-        # Blue highlight = has Final Daily Report
+        # Highlight all dates with data with green text (no background highlight to avoid conflict with selection)
         for dt in getattr(self, '_available_report_dates', []):
-            date_str_check = dt.strftime("%d-%m-%Y")
-            if date_str_check in self.history_file_map:
-                cal.calevent_create(dt, "Final Report", "report_day")
-            else:
-                cal.calevent_create(dt, "Raw Data", "raw_day")
-        cal.tag_config("report_day", background="#0ea5e9", foreground="#0f172a")
-        cal.tag_config("raw_day",    background="#475569", foreground="#f1f5f9")
+            cal.calevent_create(dt, "Available Data", "data_day")
+        cal.tag_config("data_day", foreground="#10b981", font=("Segoe UI", 10, "bold"))
 
         # Live preview: show selected date in a prominent pill below the calendar
         preview_frame = ctk.CTkFrame(popup, fg_color="transparent")

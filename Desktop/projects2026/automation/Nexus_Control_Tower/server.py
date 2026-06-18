@@ -370,6 +370,21 @@ def admin_revoke_license(data: RevokeRequest, request: Request):
     threading.Thread(target=sync_db_to_s3, daemon=True).start()
     return {"status": "revoked", "key": data.key}
 
+@app.post("/api/admin/delete_license")
+def admin_delete_license(data: RevokeRequest, request: Request):
+    if not check_admin_auth(request, data.admin_secret):
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM licenses WHERE key=?", (data.key,))
+    if conn.total_changes == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="License key not found")
+    conn.commit()
+    conn.close()
+    threading.Thread(target=sync_db_to_s3, daemon=True).start()
+    return {"status": "deleted", "key": data.key}
+
 @app.get("/api/admin/list_licenses")
 def admin_list_licenses(request: Request):
     if not check_admin_auth(request):
@@ -585,7 +600,7 @@ def issue_remote_command(data: CommandIssue, request: Request):
     conn.commit()
     conn.close()
     threading.Thread(target=sync_db_to_s3, daemon=True).start()
-    return {\"status\": \"success\", \"message\": \"Command queued for execution.\"}
+    return {"status": "success", "message": "Command queued for execution."}
 
 # ─── Client Stats Reporter ─────────────────────────────────────────────────
 # Called by the client after every SCADA/JJM data pull to keep server in sync
