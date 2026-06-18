@@ -332,13 +332,19 @@
           </div>
         </div>
 
-        <!-- Quick Buttons Panel -->
-        <div id="chat-quick-buttons" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; display: none;">
-          <button class="btn btn-sm" style="background: rgba(16, 185, 129, 0.15); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.3);" onclick="sendChatCmd('/scada')">🔄 /scada</button>
-          <button class="btn btn-sm" style="background: rgba(2, 132, 199, 0.15); color: #0284c7; border: 1px solid rgba(2, 132, 199, 0.3);" onclick="sendChatCmd('/jjm')">💧 /jjm</button>
-          <button class="btn btn-sm" style="background: rgba(139, 92, 246, 0.15); color: #8b5cf6; border: 1px solid rgba(139, 92, 246, 0.3);" onclick="sendChatCmd('/broadcast')">📤 /broadcast</button>
-          <button class="btn btn-sm" style="background: rgba(239, 68, 68, 0.15); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3);" onclick="sendChatCmd('/update')">🔄 /update</button>
-          <button class="btn btn-sm" style="background: rgba(245, 158, 11, 0.15); color: var(--warn); border: 1px solid rgba(245, 158, 11, 0.3);" onclick="sendChatCmd('/status')">🖥️ /status</button>
+        <!-- Quick Buttons Panel — Data Commands -->
+        <div id="chat-quick-buttons" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; display: none;">
+          <span style="font-size: 0.7rem; color: var(--muted); width: 100%; padding-top: 4px; text-transform: uppercase; letter-spacing: 0.05em;">📊 Data (instant reply)</span>
+          <button class="btn btn-sm" style="background: rgba(16,185,129,0.15); color: var(--success); border: 1px solid rgba(16,185,129,0.3);" onclick="sendChatCmd('/count')">📊 /count</button>
+          <button class="btn btn-sm" style="background: rgba(2,132,199,0.15); color: #0284c7; border: 1px solid rgba(2,132,199,0.3);" onclick="sendChatCmd('/today')">📅 /today</button>
+          <button class="btn btn-sm" style="background: rgba(139,92,246,0.15); color: #8b5cf6; border: 1px solid rgba(139,92,246,0.3);" onclick="sendChatCmd('/lastfile')">📁 /lastfile</button>
+          <button class="btn btn-sm" style="background: rgba(245,158,11,0.15); color: var(--warn); border: 1px solid rgba(245,158,11,0.3);" onclick="sendChatCmd('/status')">🖥️ /status</button>
+          <button class="btn btn-sm" style="background: var(--subtle); color: var(--text); border: 1px solid var(--border);" onclick="sendChatCmd('/clients')">🖥 /clients</button>
+          <span style="font-size: 0.7rem; color: var(--muted); width: 100%; padding-top: 4px; text-transform: uppercase; letter-spacing: 0.05em;">⚙️ Actions (runs on client)</span>
+          <button class="btn btn-sm" style="background: rgba(16,185,129,0.12); color: var(--success); border: 1px solid rgba(16,185,129,0.25);" onclick="sendChatCmd('/scada')">🔄 /scada</button>
+          <button class="btn btn-sm" style="background: rgba(2,132,199,0.12); color: #0284c7; border: 1px solid rgba(2,132,199,0.25);" onclick="sendChatCmd('/jjm')">💧 /jjm</button>
+          <button class="btn btn-sm" style="background: rgba(139,92,246,0.12); color: #8b5cf6; border: 1px solid rgba(139,92,246,0.25);" onclick="sendChatCmd('/broadcast')">📤 /broadcast</button>
+          <button class="btn btn-sm" style="background: rgba(239,68,68,0.12); color: var(--danger); border: 1px solid rgba(239,68,68,0.25);" onclick="sendChatCmd('/update')">🔁 /update</button>
           <button class="btn btn-sm" style="background: var(--subtle); color: var(--text); border: 1px solid var(--border);" onclick="sendChatCmd('/help')">❓ /help</button>
         </div>
 

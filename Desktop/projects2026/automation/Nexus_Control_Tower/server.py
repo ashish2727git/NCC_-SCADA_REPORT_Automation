@@ -131,6 +131,22 @@ def init_db():
                     is_self INTEGER DEFAULT 0
                  )''')
     
+    # Table for live client stats (JJM + SCADA counts reported by client)
+    c.execute('''CREATE TABLE IF NOT EXISTS client_stats (
+                    hwid TEXT PRIMARY KEY,
+                    jjm_total INTEGER DEFAULT 0,
+                    jjm_live INTEGER DEFAULT 0,
+                    jjm_not_received INTEGER DEFAULT 0,
+                    jjm_missing INTEGER DEFAULT 0,
+                    jjm_new INTEGER DEFAULT 0,
+                    scada_total INTEGER DEFAULT 0,
+                    scada_synced INTEGER DEFAULT 0,
+                    scada_not_synced INTEGER DEFAULT 0,
+                    scada_new INTEGER DEFAULT 0,
+                    last_report_file TEXT DEFAULT '',
+                    last_updated INTEGER DEFAULT 0
+                 )''')
+    
     # SEED DEFAULT LICENSES IF EMPTY
     c.execute("SELECT COUNT(*) FROM licenses")
     if c.fetchone()[0] == 0:
@@ -420,13 +436,20 @@ def send_chat_message(data: ChatMessageSend, request: Request):
     
     if lower_msg == "/help":
         reply_text = (
-            "📖 **Available Console Commands:**\n"
-            "• `/scada` : Scrapes telemetry logs from SCADA.\n"
-            "• `/jjm` : Scrapes JJM portal metrics.\n"
-            "• `/broadcast` : Sends consolidated daily report on WhatsApp.\n"
-            "• `/update` : Forces OTA check and restart.\n"
-            "• `/status` : Checks connection details of client.\n"
-            "• `/clients` : Lists all connected active client machines."
+            "📖 **Available Commands:**\n"
+            "\n"
+            "📊 **Data Commands (instant reply):**\n"
+            "• `/count` — Live JJM + SCADA counts\n"
+            "• `/today` — Today's summary (counts + last file)\n"
+            "• `/lastfile` — Last SCADA report file received\n"
+            "• `/status` — Client machine connection status\n"
+            "• `/clients` — All connected client machines\n"
+            "\n"
+            "⚙️ **Action Commands (run on client):**\n"
+            "• `/scada` — Trigger SCADA + JJM data pull\n"
+            "• `/jjm` — Trigger JJM portal scrape\n"
+            "• `/broadcast` — Send WhatsApp daily report\n"
+            "• `/update` — Force OTA update + restart"
         )
     elif lower_msg == "/status":
         c.execute("SELECT client_name, last_seen, version FROM licenses WHERE hwid=?", (data.hwid,))
@@ -460,6 +483,67 @@ def send_chat_message(data: ChatMessageSend, request: Request):
                 status_str = "🟢 ONLINE" if is_online else "🔴 OFFLINE"
                 lines.append(f"`{i+1}.` **{name}** ({status_str}) - `{h[:6]}...`")
             reply_text = "**🖥 Connected Clients:**\n" + "\n".join(lines)
+    elif lower_msg == "/count":
+        c.execute("SELECT jjm_total, jjm_live, jjm_not_received, jjm_missing, jjm_new, "
+                  "scada_total, scada_synced, scada_not_synced, scada_new, last_updated "
+                  "FROM client_stats WHERE hwid=?", (data.hwid,))
+        row = c.fetchone()
+        if row:
+            import datetime
+            ts = datetime.datetime.fromtimestamp(row[9]).strftime('%d-%m-%Y %H:%M') if row[9] else 'Never'
+            reply_text = (
+                f"📊 **Live Counts (as of {ts}):**\n"
+                f"\n"
+                f"🌐 **JJM Portal:**\n"
+                f"  Total Schemes: **{row[0]}**\n"
+                f"  🟢 Live Connected: **{row[1]}**\n"
+                f"  🟡 Data Not Received: **{row[2]}**\n"
+                f"  🔴 Off-Grid / Missing: **{row[3]}**\n"
+                f"  🆕 Newly Added: **{row[4]}**\n"
+                f"\n"
+                f"📡 **SCADA Telemetry:**\n"
+                f"  Total (Excel): **{row[5]}**\n"
+                f"  🟢 Synced: **{row[6]}**\n"
+                f"  🟠 Not Yet Synced: **{row[7]}**\n"
+                f"  🆕 Newly Added: **{row[8]}**"
+            )
+        else:
+            reply_text = "⚠️ No stats received from this client yet. Run `/scada` to trigger a data pull."
+    elif lower_msg == "/today":
+        import datetime
+        c.execute("SELECT jjm_total, jjm_live, scada_total, scada_synced, scada_not_synced, "
+                  "last_report_file, last_updated FROM client_stats WHERE hwid=?", (data.hwid,))
+        row = c.fetchone()
+        c.execute("SELECT client_name FROM licenses WHERE hwid=?", (data.hwid,))
+        name_row = c.fetchone()
+        client_name = name_row[0] if name_row else "Unknown"
+        today = datetime.date.today().strftime('%d.%m.%Y')
+        if row:
+            ts = datetime.datetime.fromtimestamp(row[6]).strftime('%d-%m-%Y %H:%M') if row[6] else 'N/A'
+            reply_text = (
+                f"📅 **Daily Summary — {today}**\n"
+                f"Client: **{client_name}**\n"
+                f"Last sync: {ts}\n"
+                f"\n"
+                f"No of schemes connected with SCADA: **{row[3]}**\n"
+                f"No of schemes Live in JJM Portal: **{row[1]}**\n"
+                f"Not yet synced: **{row[4]}**\n"
+                f"Total Schemes in SCADA: **{row[2]}**\n"
+                f"Total JJM Schemes: **{row[0]}**\n"
+                f"\n"
+                f"📁 Last file: `{row[5] or 'None'}`"
+            )
+        else:
+            reply_text = f"⚠️ No data for today yet from **{client_name}**. Run `/scada` to fetch."
+    elif lower_msg == "/lastfile":
+        c.execute("SELECT last_report_file, last_updated FROM client_stats WHERE hwid=?", (data.hwid,))
+        row = c.fetchone()
+        if row and row[0]:
+            import datetime
+            ts = datetime.datetime.fromtimestamp(row[1]).strftime('%d-%m-%Y %H:%M') if row[1] else 'N/A'
+            reply_text = f"📁 **Last Report File:**\n`{row[0]}`\nReceived at: {ts}"
+        else:
+            reply_text = "📭 No report file received from this client yet."
     elif lower_msg in ("/scada", "/jjm", "/broadcast", "/update"):
         api_cmd = ""
         cmd_label = ""
@@ -501,7 +585,57 @@ def issue_remote_command(data: CommandIssue, request: Request):
     conn.commit()
     conn.close()
     threading.Thread(target=sync_db_to_s3, daemon=True).start()
-    return {"status": "success", "message": "Command queued for execution."}
+    return {\"status\": \"success\", \"message\": \"Command queued for execution.\"}
+
+# ─── Client Stats Reporter ─────────────────────────────────────────────────
+# Called by the client after every SCADA/JJM data pull to keep server in sync
+class ClientStatsReport(BaseModel):
+    hwid: str
+    jjm_total: int = 0
+    jjm_live: int = 0
+    jjm_not_received: int = 0
+    jjm_missing: int = 0
+    jjm_new: int = 0
+    scada_total: int = 0
+    scada_synced: int = 0
+    scada_not_synced: int = 0
+    scada_new: int = 0
+    last_report_file: str = ""
+
+@app.post("/api/report_stats")
+def report_client_stats(data: ClientStatsReport):
+    """Client posts its live JJM+SCADA counts here after every sync.
+    These are then queryable via /count, /today, /lastfile in the chat console."""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("""INSERT INTO client_stats
+                        (hwid, jjm_total, jjm_live, jjm_not_received, jjm_missing, jjm_new,
+                         scada_total, scada_synced, scada_not_synced, scada_new, last_report_file, last_updated)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     ON CONFLICT(hwid) DO UPDATE SET
+                         jjm_total=excluded.jjm_total,
+                         jjm_live=excluded.jjm_live,
+                         jjm_not_received=excluded.jjm_not_received,
+                         jjm_missing=excluded.jjm_missing,
+                         jjm_new=excluded.jjm_new,
+                         scada_total=excluded.scada_total,
+                         scada_synced=excluded.scada_synced,
+                         scada_not_synced=excluded.scada_not_synced,
+                         scada_new=excluded.scada_new,
+                         last_report_file=excluded.last_report_file,
+                         last_updated=excluded.last_updated""",
+                  (data.hwid, data.jjm_total, data.jjm_live, data.jjm_not_received,
+                   data.jjm_missing, data.jjm_new, data.scada_total, data.scada_synced,
+                   data.scada_not_synced, data.scada_new, data.last_report_file, int(time.time())))
+        conn.commit()
+        conn.close()
+        threading.Thread(target=sync_db_to_s3, daemon=True).start()
+        logger.info(f"[STATS] Received live stats from hwid={data.hwid[:8]}... JJM={data.jjm_live}/{data.jjm_total} SCADA={data.scada_synced}/{data.scada_total}")
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"[STATS] Failed to store client stats: {e}")
+        raise HTTPException(status_code=500, detail="Failed to store stats")
 
 @app.post("/api/admin/issue_command_all")
 def issue_remote_command_all(data: CommandIssueAll, request: Request):

@@ -2950,8 +2950,44 @@ del "%~f0"
                 self.safe_log_update(f"⚠️ Could not export live JSON: {e}")
                 
             self.safe_log_update("[SYS] Data structured and ready for export.")
-            
+
+            # --- Report live counts to Control Tower (powers /count, /today, /lastfile chat commands) ---
+            threading.Thread(
+                target=self._post_stats_to_server,
+                args=(jjm_total, jjm_live, jjm_not_recv, jjm_leftover, new_jjm_count,
+                      len(self.scada_data["total"]), len(self.scada_data["synced"]),
+                      len(self.scada_data["not_synced"]), len(self.scada_data["new"]),
+                      os.path.basename(latest_file_path)),
+                daemon=True
+            ).start()
+
         except Exception as e: self.safe_log_update(f"❌ Analysis Fail: {str(e)}")
+
+    def _post_stats_to_server(self, jjm_total, jjm_live, jjm_not_recv, jjm_missing, jjm_new,
+                               scada_total, scada_synced, scada_not_synced, scada_new, last_file):
+        """Posts live JJM+SCADA counts to the Control Tower server so admin chat commands return real data."""
+        try:
+            hwid = self._get_hwid()
+            payload = {
+                "hwid": hwid,
+                "jjm_total": jjm_total,
+                "jjm_live": jjm_live,
+                "jjm_not_received": jjm_not_recv,
+                "jjm_missing": jjm_missing,
+                "jjm_new": jjm_new,
+                "scada_total": scada_total,
+                "scada_synced": scada_synced,
+                "scada_not_synced": scada_not_synced,
+                "scada_new": scada_new,
+                "last_report_file": last_file
+            }
+            resp = requests.post("http://devash.in/api/report_stats", json=payload, timeout=8)
+            if resp.status_code == 200:
+                self.safe_log_update("[SYS] Live stats synced to Control Tower ✅")
+            else:
+                self.safe_log_update(f"[WARN] Stats sync: HTTP {resp.status_code}")
+        except Exception as e:
+            self.safe_log_update(f"[WARN] Could not sync stats to server: {e}")
 
     def generate_final_report(self):
         self.safe_log_update("\n[SYS] Generating End of Day Final Report...")
