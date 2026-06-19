@@ -1,5 +1,7 @@
 import customtkinter as ctk
 import tkinter as tk
+import cv2
+from PIL import Image, ImageTk
 from tkinter import filedialog, messagebox
 import pandas as pd
 from datetime import datetime
@@ -48,7 +50,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "16.5"
+CLIENT_VERSION = "16.6"
 
 # ── SELF-HEALING FILENAME UPDATE ──
 try:
@@ -259,12 +261,10 @@ class NexusSyncPro(ctk.CTk):
         
         # Calculate optimal size based on display
         if screen_w <= 1280:
-            # For 1024x768 or similar, use almost full screen
             width = int(screen_w * 0.95)
             height = int(screen_h * 0.9)
-            ctk.set_widget_scaling(0.85) # Scale down to fit all metrics
+            ctk.set_widget_scaling(0.85)
         else:
-            # For 1080p and above, use balanced proportions
             width = min(1366, int(screen_w * 0.8))
             height = min(800, int(screen_h * 0.8))
             ctk.set_widget_scaling(1.0)
@@ -1270,7 +1270,21 @@ del "%~f0"
         self.sidebar_scroll = ctk.CTkScrollableFrame(self.sidebar, fg_color="transparent", corner_radius=0, label_text="")
         self.sidebar_scroll.pack(fill="both", expand=True)
         
-        ctk.CTkLabel(self.sidebar_scroll, text="NEXUS SYNC", font=("Segoe UI", 24, "bold"), text_color=CLR_CYAN).pack(pady=(30, 5))
+        # NCC branding logo display
+        logo_path = os.path.join(_BASE_DIR, "ncc_logo.png")
+        if not os.path.exists(logo_path):
+            self.generate_ncc_logo(logo_path)
+            
+        if os.path.exists(logo_path):
+            try:
+                pil_logo = Image.open(logo_path)
+                self.sidebar_logo_img = ctk.CTkImage(light_image=pil_logo, dark_image=pil_logo, size=(100, 100))
+                self.sidebar_logo_lbl = ctk.CTkLabel(self.sidebar_scroll, image=self.sidebar_logo_img, text="")
+                self.sidebar_logo_lbl.pack(pady=(20, 10))
+            except Exception as e:
+                print("Failed to load logo image:", e)
+                
+        ctk.CTkLabel(self.sidebar_scroll, text="NEXUS SYNC", font=("Segoe UI", 24, "bold"), text_color=CLR_CYAN).pack(pady=(10, 5))
         ctk.CTkLabel(self.sidebar_scroll, text=f"PRODUCTION BUILD v{CLIENT_VERSION}", font=("Segoe UI", 9, "bold"), text_color=CLR_GOLD).pack(pady=(0, 20))
 
         ctrl_frame = ctk.CTkFrame(self.sidebar_scroll, fg_color="transparent")
@@ -4216,6 +4230,184 @@ del "%~f0"
                     break
         if not matched:
             self.safe_log_update(f"[SYS] Could not find scheme '{gp_name}' in the loaded report.")
+
+    def _get_resource_path(self, relative_path):
+        if getattr(sys, 'frozen', False):
+            base_path = sys._MEIPASS
+        else:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(base_path, relative_path)
+
+    def play_intro_video(self, callback):
+        video_path = self._get_resource_path("intro video.mp4")
+        if not os.path.exists(video_path):
+            callback()
+            return
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            cap.release()
+            callback()
+            return
+
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        if frame_count <= 0 or width <= 0 or height <= 0:
+            ret, first_frame = cap.read()
+            if not ret:
+                cap.release()
+                callback()
+                return
+            cap.release()
+            cap = cv2.VideoCapture(video_path)
+            width = first_frame.shape[1]
+            height = first_frame.shape[0]
+
+        if fps <= 0 or fps > 120:
+            fps = 30
+        delay = int(1000 / fps)
+
+        splash = tk.Toplevel(self)
+        splash.title("Loading...")
+        if hasattr(splash, "configure"):
+            splash.configure(fg_color="#0f172a")
+        splash.config(bg="#0f172a")
+        splash.overrideredirect(True)
+        splash.attributes("-topmost", True)
+
+        screen_w = splash.winfo_screenwidth()
+        screen_h = splash.winfo_screenheight()
+        
+        scale = 1.0
+        if width > screen_w * 0.9 or height > screen_h * 0.9:
+            scale = min(screen_w * 0.9 / width, screen_h * 0.9 / height)
+            width = int(width * scale)
+            height = int(height * scale)
+
+        x = (screen_w - width) // 2
+        y = (screen_h - height) // 2
+        splash.geometry(f"{width}x{height}+{x}+{y}")
+
+        lbl = tk.Label(splash, bg="#0f172a")
+        lbl.pack(fill="both", expand=True)
+
+        finished = False
+
+        def finish():
+            nonlocal finished
+            if not finished:
+                finished = True
+                cap.release()
+                try:
+                    splash.destroy()
+                except Exception:
+                    pass
+                callback()
+
+        splash.bind("<Button-1>", lambda e: finish())
+        splash.bind("<Key>", lambda e: finish())
+
+        def update_frame():
+            if finished:
+                return
+            ret, frame = cap.read()
+            if ret:
+                if scale != 1.0:
+                    frame = cv2.resize(frame, (width, height))
+                cv2_im = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil_im = Image.fromarray(cv2_im)
+                imgtk = ImageTk.PhotoImage(image=pil_im)
+                lbl.imgtk = imgtk
+                lbl.configure(image=imgtk)
+                splash.after(delay, update_frame)
+            else:
+                finish()
+
+        update_frame()
+
+    def generate_ncc_logo(self, path):
+        # First, try to copy it from the bundled folder
+        bundled_logo = self._get_resource_path("ncc_logo.png")
+        if os.path.exists(bundled_logo):
+            try:
+                import shutil
+                shutil.copy2(bundled_logo, path)
+                self.safe_log_update("[SYS] Successfully loaded bundled NCC logo.")
+                return
+            except Exception as e:
+                print("Failed to copy bundled logo:", e)
+
+        video_path = self._get_resource_path("intro video.mp4")
+        if os.path.exists(video_path):
+            try:
+                cap = cv2.VideoCapture(video_path)
+                if cap.isOpened():
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 15)
+                    ret, frame = cap.read()
+                    if not ret:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ret, frame = cap.read()
+                    if ret:
+                        h, w, _ = frame.shape
+                        size = min(h, w)
+                        start_x = (w - size) // 2
+                        start_y = (h - size) // 2
+                        cropped = frame[start_y:start_y+size, start_x:start_x+size]
+                        
+                        rgb_cropped = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
+                        pil_img = Image.fromarray(rgb_cropped)
+                        pil_img.save(path)
+                        cap.release()
+                        self.safe_log_update("[SYS] Successfully extracted NCC logo from intro video.")
+                        return
+                    cap.release()
+            except Exception as e:
+                print("Failed to extract logo from video:", e)
+
+        try:
+            from PIL import ImageDraw, ImageFont
+            img = Image.new("RGBA", (200, 200), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            
+            draw.ellipse([10, 10, 190, 190], fill=(30, 41, 59, 255), outline=(14, 165, 233, 255), width=4)
+            
+            font_title = None
+            font_subtitle = None
+            for font_name in ["segoeui.ttf", "arial.ttf", "tahoma.ttf", "calibri.ttf"]:
+                try:
+                    font_title = ImageFont.truetype(font_name, 48)
+                    font_subtitle = ImageFont.truetype(font_name, 14)
+                    break
+                except: pass
+                
+            text_ncc = "NCC"
+            if hasattr(draw, "textbbox"):
+                bbox = draw.textbbox((0, 0), text_ncc, font=font_title)
+                w_ncc = bbox[2] - bbox[0]
+            else:
+                w_ncc = draw.textsize(text_ncc, font=font_title)[0] if font_title else 60
+            
+            x_ncc = (200 - w_ncc) // 2
+            y_ncc = 65
+            draw.text((x_ncc, y_ncc), text_ncc, fill=(241, 245, 249, 255), font=font_title)
+            
+            text_scada = "SCADA SYSTEM"
+            if hasattr(draw, "textbbox"):
+                bbox_sub = draw.textbbox((0, 0), text_scada, font=font_subtitle)
+                w_sub = bbox_sub[2] - bbox_sub[0]
+            else:
+                w_sub = draw.textsize(text_scada, font=font_subtitle)[0] if font_subtitle else 80
+            x_sub = (200 - w_sub) // 2
+            y_sub = 120
+            draw.text((x_sub, y_sub), text_scada, fill=(14, 165, 233, 255), font=font_subtitle)
+            
+            img.save(path)
+            self.safe_log_update("[SYS] Generated fallback NCC branding logo.")
+        except Exception as e:
+            print("Failed to generate fallback logo:", e)
 
     def sync_operator_with_server(self, gp_name, op_name, phone, block_name, timestamp):
         hwid = self._get_hwid()

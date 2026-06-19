@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('nexus_logo.ico', '.')]
+datas = [('nexus_logo.ico', '.'), ('ncc_logo.png', '.'), ('intro video.mp4', '.')]
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('customtkinter')
@@ -51,7 +51,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Ashish_Kumar_NexusSyncPro',
+    name='Ashish_Kumar_NexusSyncPro_v16.6',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
