@@ -1358,14 +1358,14 @@ del "%~f0"
         self.jjm_grid.columnconfigure((0, 1, 2), weight=1)
         self.jjm_grid.rowconfigure((0, 1), weight=1)
 
-        # Row 0: TOTAL JJM | OFF-GRID / MISSING | DATA NOT RECEIVED
+        # Row 0: TOTAL JJM | OFF-GRID | DISCONNECTED
         self.jjm_total_lbl = self._create_metric_card_grid(self.jjm_grid, "TOTAL JJM SCHEMES", "0", CLR_CYAN, 0, 0, command=lambda e: self.show_list_popup("JJM TOTAL", self.jjm_list_data.get("total", [])))
-        self.jjm_leftover_lbl = self._create_metric_card_grid(self.jjm_grid, "OFF-GRID / MISSING", "0", "#ef4444", 0, 1, command=lambda e: self.show_list_popup("JJM OFF-GRID / MISSING", self.jjm_list_data.get("leftover", [])))
-        self.jjm_not_recv_lbl = self._create_metric_card_grid(self.jjm_grid, "DATA NOT RECEIVED", "0", CLR_GOLD, 0, 2, command=lambda e: self.show_list_popup("JJM NOT RECEIVED", self.jjm_list_data.get("not_recv", [])))
+        self.jjm_leftover_lbl = self._create_metric_card_grid(self.jjm_grid, "OFF-GRID", "0", "#ef4444", 0, 1, command=lambda e: self.show_list_popup("JJM OFF-GRID", self.jjm_list_data.get("leftover", [])))
+        self.jjm_not_recv_lbl = self._create_metric_card_grid(self.jjm_grid, "DISCONNECTED", "0", CLR_GOLD, 0, 2, command=lambda e: self.show_list_popup("JJM DISCONNECTED", self.jjm_list_data.get("not_recv", [])))
 
         # Row 1: LIVE CONNECTED | NEWLY ADDED | (empty spacer)
         self.jjm_live_lbl = self._create_metric_card_grid(self.jjm_grid, "LIVE CONNECTED", "0", CLR_GREEN, 1, 0, command=lambda e: self.show_list_popup("JJM LIVE CONNECTED", self.jjm_list_data.get("live", [])))
-        self.jjm_new_lbl = self._create_metric_card_grid(self.jjm_grid, "NEWLY ADDED IN JJM", "0", "#fb7185", 1, 1, command=lambda e: self.show_list_popup("JJM NEWLY ADDED", self.jjm_list_data.get("new", [])))
+        self.jjm_new_lbl = self._create_metric_card_grid(self.jjm_grid, "NEWLY ADDED", "0", "#fb7185", 1, 1, command=lambda e: self.show_list_popup("JJM NEWLY ADDED", self.jjm_list_data.get("new", [])))
 
         # 6th slot in JJM grid is left empty/symmetric (JJM has 5 boxes, SCADA has 4)
         self.jjm_empty_lbl = ctk.CTkFrame(self.jjm_grid, fg_color="transparent")
@@ -1488,8 +1488,8 @@ del "%~f0"
     # ──────────────────────────────────────────────────────────────
     _LAYOUT_DEFAULTS = {
         "log_height":     180,   # px — System Log + Mapping History terminals
-        "jjm_height":     175,   # px — JJM Portal panel
-        "scada_height":   160,   # px — SCADA Telemetry panel
+        "jjm_height":     225,   # px — JJM Portal panel (fits 2 rows cleanly)
+        "scada_height":   210,   # px — SCADA Telemetry panel (fits 2 rows cleanly)
         "preview_width":  300,   # px — WhatsApp Payload Preview column width
     }
 
@@ -1510,6 +1510,9 @@ del "%~f0"
                             pass
             except Exception:
                 pass
+        # Enforce minimum heights to ensure all metric card rows are fully visible
+        defaults["jjm_height"] = max(defaults["jjm_height"], 225)
+        defaults["scada_height"] = max(defaults["scada_height"], 210)
         return defaults
 
     def _save_layout_config(self, layout: dict):
