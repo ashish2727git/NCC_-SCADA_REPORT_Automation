@@ -48,7 +48,34 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "16.3"
+CLIENT_VERSION = "16.4"
+
+# ── SELF-HEALING FILENAME UPDATE ──
+try:
+    current_exe = sys.executable if getattr(sys, 'frozen', False) else None
+    if current_exe and current_exe.endswith(".exe"):
+        current_name = os.path.basename(current_exe)
+        # Extract version from filename using regex
+        match = re.search(r'Ashish_Kumar_NexusSyncPro_v([\d\.]+)', current_name)
+        if match:
+            filename_version = match.group(1)
+            if filename_version != CLIENT_VERSION:
+                current_dir = os.path.dirname(current_exe)
+                correct_name = f"Ashish_Kumar_NexusSyncPro_v{CLIENT_VERSION}.exe"
+                correct_exe_path = os.path.join(current_dir, correct_name)
+                
+                import shutil, subprocess
+                # Copy self to the correct path
+                shutil.copy2(current_exe, correct_exe_path)
+                
+                # Launch the correct path
+                subprocess.Popen([correct_exe_path] + sys.argv[1:],
+                                 creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                                 close_fds=True)
+                # Exit this mismatched process
+                os._exit(0)
+except Exception:
+    pass
 
 def parse_version(version_str):
     """Parses a version string like '15.4-beta' or '15.5' into a comparable tuple.
@@ -445,17 +472,44 @@ class NexusSyncPro(ctk.CTk):
         
         self.setup_ui()
         
-        # Clean up old executable backup from recent updates
-        try:
-            current_exe_path = sys.executable if getattr(sys, 'frozen', False) else None
-            if current_exe_path:
-                old_exe_path = current_exe_path + ".old"
-                if os.path.exists(old_exe_path):
-                    os.remove(old_exe_path)
-                    self.safe_log_update("[OTA] Cleaned up previous version update backup.")
-                    self.after(2000, lambda: self.safe_log_update(f"[OTA] 🎉 System successfully upgraded to v{CLIENT_VERSION}!"))
-        except Exception:
-            pass
+        # Clean up old executable versions from the directory in a background thread
+        def run_cleanup():
+            import time
+            time.sleep(2)  # Wait for the old process to completely terminate and release file locks
+            try:
+                current_exe_path = sys.executable if getattr(sys, 'frozen', False) else None
+                if current_exe_path and current_exe_path.endswith(".exe"):
+                    current_dir = os.path.dirname(current_exe_path)
+                    current_name = os.path.basename(current_exe_path)
+                    cleaned_any = False
+                    
+                    # Scan directory for versioned executables or standard named executables that are not the current running one
+                    for f in os.listdir(current_dir):
+                        if (f.startswith("Ashish_Kumar_NexusSyncPro_v") or f.startswith("Ashish_Kumar_NexusSyncPro.exe")) and f.endswith(".exe") and f != current_name:
+                            old_path = os.path.join(current_dir, f)
+                            for _ in range(5):
+                                try:
+                                    if os.path.exists(old_path):
+                                        os.remove(old_path)
+                                    cleaned_any = True
+                                    break
+                                except Exception:
+                                    time.sleep(1)
+                                    
+                    # Clean up old .old backup if any
+                    old_bak = current_exe_path + ".old"
+                    if os.path.exists(old_bak):
+                        try:
+                            os.remove(old_bak)
+                            cleaned_any = True
+                        except: pass
+                        
+                    if cleaned_any:
+                        self.safe_log_update("[OTA] Cleaned up previous version executable files.")
+                        self.after(2000, lambda: self.safe_log_update(f"[OTA] 🎉 System successfully upgraded to v{CLIENT_VERSION}!"))
+            except Exception:
+                pass
+        threading.Thread(target=run_cleanup, daemon=True).start()
 
         os.makedirs(CHROME_DATA_DIR, exist_ok=True)
 
@@ -477,6 +531,77 @@ class NexusSyncPro(ctk.CTk):
             self.safe_log_update(f"[SYS] Existing files detected in today's folder — reusing workspace.")
         
         self._register_startup()
+        
+        # Populate operators notebook from the latest file in a background thread if empty
+        def init_operators_on_startup():
+            if not hasattr(self, "operator_data") or not self.operator_data:
+                self.operator_data = {}
+                self.load_local_operators()
+                
+            if not self.operator_data:
+                try:
+                    xlsx_files = []
+                    folders_to_scan = [self.watch_folder]
+                    if hasattr(self, 'workspace_base') and self.workspace_base:
+                        folders_to_scan.append(self.workspace_base)
+                    
+                    for folder in folders_to_scan:
+                        if folder and os.path.exists(folder):
+                            for f in os.listdir(folder):
+                                if f.endswith(".xlsx") and not f.startswith("Final_Daily_Report"):
+                                    xlsx_files.append(os.path.join(folder, f))
+                    
+                    if xlsx_files:
+                        latest_xlsx = max(xlsx_files, key=os.path.getctime)
+                        self.safe_log_update(f"[SYS] First-time startup: Populating GPs from {os.path.basename(latest_xlsx)}...")
+                        df = pd.read_excel(latest_xlsx, header=None, nrows=15)
+                        header_row = df.notna().sum(axis=1).idxmax()
+                        df = pd.read_excel(latest_xlsx, header=header_row)
+                        df.columns = [str(c).strip().lower() for c in df.columns]
+                        
+                        gp_idx = None
+                        block_idx = None
+                        df_header = pd.read_excel(latest_xlsx, header=None, nrows=5)
+                        for col_idx in range(df_header.shape[1]):
+                            col_values = df_header.iloc[:, col_idx].dropna().astype(str).str.lower().tolist()
+                            for val in col_values:
+                                if gp_idx is None and ("gram panchayat" in val or val == "gp" or "gp name" in val):
+                                    gp_idx = col_idx
+                                if block_idx is None and "block" in val:
+                                    block_idx = col_idx
+                        
+                        if gp_idx is None:
+                            gp_idx = 10 if df_header.shape[1] > 10 else (1 if df_header.shape[1] > 1 else 0)
+                        if block_idx is None:
+                            block_idx = 7 if df_header.shape[1] > 7 else (1 if df_header.shape[1] > 1 else 0)
+                            
+                        gp_col = df.columns[gp_idx]
+                        block_col = df.columns[block_idx]
+                        
+                        gp_block_map = {}
+                        for _, row in df.iterrows():
+                            g_val = str(row[gp_col]).strip() if pd.notna(row[gp_col]) else ""
+                            if not g_val or g_val == "nan" or any(x in g_val.upper() for x in ["SUCCESS COUNT", "STALE COUNT", "NEW GP COUNT", "TOTAL"]):
+                                continue
+                            b_val = str(row[block_col]).strip() if pd.notna(row[block_col]) else ""
+                            gp_block_map[g_val] = b_val
+                            
+                        for gp, block in gp_block_map.items():
+                            if gp not in self.operator_data:
+                                self.operator_data[gp] = {
+                                    "gp_name": gp,
+                                    "block_name": block,
+                                    "operator_name": "",
+                                    "phone_number": "",
+                                    "last_updated": 0,
+                                    "hwid": ""
+                                }
+                        self.save_local_operators()
+                        self.after(0, self.refresh_notebook_table)
+                except Exception as e:
+                    self.safe_log_update(f"[SYS] Failed to pre-populate operators on boot: {e}")
+
+        threading.Thread(target=init_operators_on_startup, daemon=True).start()
         
         threading.Thread(target=self.run_scheduler, daemon=True).start()
         threading.Thread(target=self.startup_check, daemon=True).start()
@@ -757,6 +882,7 @@ class NexusSyncPro(ctk.CTk):
         import shutil
         current_exe = sys.executable if getattr(sys, 'frozen', False) else sys.executable
         update_path = getattr(self, '_update_pending_path', None)
+        pending_filename = getattr(self, '_update_pending_filename', None)
 
         # Prepare clean environment for the new PyInstaller process
         env = os.environ.copy()
@@ -771,27 +897,24 @@ class NexusSyncPro(ctk.CTk):
                 except:
                     pass
 
-        if update_path and os.path.exists(update_path):
+        if update_path and os.path.exists(update_path) and pending_filename:
             current_exe_path = sys.executable if getattr(sys, 'frozen', False) else None
             if current_exe_path and current_exe_path.endswith(".exe"):
-                old_exe_path = current_exe_path + ".old"
-                if os.path.exists(old_exe_path):
-                    try:
-                        os.remove(old_exe_path)
-                    except:
-                        pass
-                # Rename the running executable so we can free up its filename
+                current_dir = os.path.dirname(current_exe_path)
+                new_exe_path = os.path.join(current_dir, pending_filename)
+                
                 try:
-                    os.rename(current_exe_path, old_exe_path)
-                    shutil.copy2(update_path, current_exe_path)
-                    # Launch the new EXE and kill this old process
-                    subprocess.Popen([current_exe_path] + sys.argv,
+                    # Copy the new executable to its versioned name in the target directory
+                    shutil.copy2(update_path, new_exe_path)
+                    
+                    # Launch the new versioned EXE and kill this old process
+                    subprocess.Popen([new_exe_path] + sys.argv,
                                      creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
                                      close_fds=True,
                                      env=env)
                     os._exit(0)
                 except Exception as e:
-                    self.safe_log_update(f"[OTA] ⚠️ Restart fail (Privilege Error): {e}")
+                    self.safe_log_update(f"[OTA] ⚠️ Restart fail (Privilege/Copy Error): {e}")
             
             # Fallback if uncompiled
             subprocess.Popen([current_exe] + sys.argv,
@@ -815,7 +938,12 @@ class NexusSyncPro(ctk.CTk):
                 current_ver = CLIENT_VERSION
                 if is_newer_version(latest_ver, current_ver):
                     self.safe_log_update(f"[OTA] Update available: v{latest_ver}. Initiating download...")
-                    dl_url = f"http://devash.in{data.get('download_url')}"
+                    dl_url_path = data.get('download_url', '')
+                    dl_url = f"http://devash.in{dl_url_path}"
+                    
+                    # Store the target versioned filename for update placement
+                    pending_filename = os.path.basename(dl_url_path) if dl_url_path else f"Ashish_Kumar_NexusSyncPro_v{latest_ver}.exe"
+                    self._update_pending_filename = pending_filename
                     
                     # Stream the download
                     response = requests.get(dl_url, stream=True, timeout=60)
@@ -1069,19 +1197,22 @@ class NexusSyncPro(ctk.CTk):
 
         # ── OTA AUTO-SWAP: If an update was downloaded today, apply it now ──
         update_path = getattr(self, '_update_pending_path', None)
-        if update_path and os.path.exists(update_path):
+        pending_filename = getattr(self, '_update_pending_filename', None)
+        if update_path and os.path.exists(update_path) and pending_filename:
             try:
                 current_exe = sys.executable if getattr(sys, 'frozen', False) else None
                 if current_exe and current_exe.endswith(".exe"):
                     self.safe_log_update("[OTA] Staging overnight update swap...")
-                    # Write a bat that: waits 3s, replaces exe, updates Task Scheduler, launches new version
+                    current_dir = os.path.dirname(current_exe)
+                    new_exe_path = os.path.join(current_dir, pending_filename)
                     bat_path = os.path.join(_BASE_DIR, "nexus_updater.bat")
                     bat_content = f"""@echo off
 :: Nexus Auto-Updater - Runs after app closes at 7 PM
 ping -n 4 127.0.0.1 > nul
-copy /Y "{update_path}" "{current_exe}"
+copy /Y "{update_path}" "{new_exe_path}"
 del "{update_path}"
-schtasks /create /tn "NexusSyncPro_DailyOpen" /tr "\"{current_exe}\"" /sc daily /st 08:00 /f > nul
+del "{current_exe}"
+schtasks /create /tn "NexusSyncPro_DailyOpen" /tr "\\"{new_exe_path}\\"" /sc daily /st 08:00 /f > nul
 del "%~f0"
 """
                     with open(bat_path, 'w') as f:
@@ -1103,16 +1234,20 @@ del "%~f0"
     def on_closing(self):
         """Handle window close event manually. Silently applies any pending update before exiting."""
         update_path = getattr(self, '_update_pending_path', None)
-        if update_path and os.path.exists(update_path):
+        pending_filename = getattr(self, '_update_pending_filename', None)
+        if update_path and os.path.exists(update_path) and pending_filename:
             try:
                 current_exe = sys.executable if getattr(sys, 'frozen', False) else None
                 if current_exe and current_exe.endswith(".exe"):
+                    current_dir = os.path.dirname(current_exe)
+                    new_exe_path = os.path.join(current_dir, pending_filename)
                     bat_path = os.path.join(_BASE_DIR, "nexus_updater.bat")
                     bat_content = f"""@echo off
 ping -n 3 127.0.0.1 > nul
-copy /Y "{update_path}" "{current_exe}"
+copy /Y "{update_path}" "{new_exe_path}"
 del "{update_path}"
-schtasks /create /tn "NexusSyncPro_DailyOpen" /tr "\"{current_exe}\"" /sc daily /st 08:00 /f > nul
+del "{current_exe}"
+schtasks /create /tn "NexusSyncPro_DailyOpen" /tr "\\"{new_exe_path}\\"" /sc daily /st 08:00 /f > nul
 del "%~f0"
 """
                     with open(bat_path, 'w') as f:
@@ -2911,18 +3046,47 @@ del "%~f0"
             self.scada_data["not_synced"] = sorted(not_synced[gp_col].dropna().astype(str).tolist())
             self.scada_data["new"] = sorted(daily_new_gps)
             
-            # If in SCADA newly added schemes, add them to the existing data of phone book
+            # If the phone book is empty, fetch all schemes from the SCADA data for the first time.
+            # Otherwise, just add any newly added schemes from today's SCADA data.
             if not hasattr(self, "operator_data") or self.operator_data is None:
                 self.operator_data = {}
                 self.load_local_operators()
             
-            newly_added_scada = self.scada_data.get("new", [])
+            gps_to_add = []
+            if not self.operator_data:
+                gps_to_add = self.scada_data.get("total", [])
+                self.safe_log_update("[SYS] Operator phone book is empty. Populating all SCADA schemes for the first time...")
+            else:
+                gps_to_add = self.scada_data.get("new", [])
+                
             has_new_ops = False
-            for gp in newly_added_scada:
+            
+            # Find block column using robust header search
+            block_idx = None
+            try:
+                df_header = pd.read_excel(latest_file_path, header=None, nrows=5)
+                for col_idx in range(df_header.shape[1]):
+                    col_values = df_header.iloc[:, col_idx].dropna().astype(str).str.lower().tolist()
+                    if any("block" in val for val in col_values):
+                        block_idx = col_idx
+                        break
+            except: pass
+            
+            block_col = df.columns[block_idx] if block_idx is not None else None
+            gp_block_map = {}
+            if block_col:
+                for _, row in df.iterrows():
+                    g_val = str(row[gp_col]).strip() if pd.notna(row[gp_col]) else ""
+                    b_val = str(row[block_col]).strip() if pd.notna(row[block_col]) else ""
+                    if g_val:
+                        gp_block_map[g_val] = b_val
+                        
+            for gp in gps_to_add:
                 if gp not in self.operator_data:
+                    block_name = gp_block_map.get(gp, "")
                     self.operator_data[gp] = {
                         "gp_name": gp,
-                        "block_name": "",
+                        "block_name": block_name,
                         "operator_name": "",
                         "phone_number": "",
                         "last_updated": 0,
