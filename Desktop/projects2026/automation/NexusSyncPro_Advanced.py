@@ -50,7 +50,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "16.6"
+CLIENT_VERSION = "16.7"
 
 # ── SELF-HEALING FILENAME UPDATE ──
 try:
