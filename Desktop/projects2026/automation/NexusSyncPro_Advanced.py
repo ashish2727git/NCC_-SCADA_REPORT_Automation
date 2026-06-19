@@ -48,7 +48,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "16.4"
+CLIENT_VERSION = "16.5"
 
 # ── SELF-HEALING FILENAME UPDATE ──
 try:
@@ -572,18 +572,16 @@ class NexusSyncPro(ctk.CTk):
                         
                         if gp_idx is None:
                             gp_idx = 10 if df_header.shape[1] > 10 else (1 if df_header.shape[1] > 1 else 0)
-                        if block_idx is None:
-                            block_idx = 7 if df_header.shape[1] > 7 else (1 if df_header.shape[1] > 1 else 0)
                             
                         gp_col = df.columns[gp_idx]
-                        block_col = df.columns[block_idx]
+                        block_col = df.columns[block_idx] if block_idx is not None else None
                         
                         gp_block_map = {}
                         for _, row in df.iterrows():
                             g_val = str(row[gp_col]).strip() if pd.notna(row[gp_col]) else ""
                             if not g_val or g_val == "nan" or any(x in g_val.upper() for x in ["SUCCESS COUNT", "STALE COUNT", "NEW GP COUNT", "TOTAL"]):
                                 continue
-                            b_val = str(row[block_col]).strip() if pd.notna(row[block_col]) else ""
+                            b_val = str(row[block_col]).strip() if (block_col is not None and pd.notna(row[block_col])) else ""
                             gp_block_map[g_val] = b_val
                             
                         for gp, block in gp_block_map.items():
@@ -2274,6 +2272,8 @@ del "%~f0"
                 self.history_tree.insert("", "end", values=vals)
 
             self.history_tree.bind("<Double-1>", self.on_history_cell_double_click)
+            self.history_tree.bind("<Button-3>", lambda event: self.show_context_menu(event, self.history_tree, "history", None))
+            self.history_tree.bind("<Button-2>", lambda event: self.show_context_menu(event, self.history_tree, "history", None))
             self.save_edit_btn.configure(state="normal")
 
         except Exception as e:
@@ -2340,6 +2340,8 @@ del "%~f0"
                 self.history_tree.insert("", "end", values=vals)
                 
             self.history_tree.bind("<Double-1>", self.on_history_cell_double_click)
+            self.history_tree.bind("<Button-3>", lambda event: self.show_context_menu(event, self.history_tree, "history", None))
+            self.history_tree.bind("<Button-2>", lambda event: self.show_context_menu(event, self.history_tree, "history", None))
             self.save_edit_btn.configure(state="normal")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load daily report:\n{e}")
@@ -2601,6 +2603,9 @@ del "%~f0"
         
         tree.pack(side="left", fill="both", expand=True)
         v_scrollbar.pack(side="right", fill="y")
+        
+        tree.bind("<Button-3>", lambda event, p=popup: self.show_context_menu(event, tree, "popup", p))
+        tree.bind("<Button-2>", lambda event, p=popup: self.show_context_menu(event, tree, "popup", p))
         
         def update_list(*args):
             query = search_var.get().strip().lower()
@@ -3843,26 +3848,35 @@ del "%~f0"
         self.op_search_entry.pack(fill="x", pady=(5, 0))
         
         # Detail / Edit form
+        self.op_original_gp_name = ""
         edit_block = ctk.CTkFrame(top_frame, fg_color="transparent")
         edit_block.pack(side="right", padx=15, pady=15, fill="both", expand=True)
         
-        form_row = ctk.CTkFrame(edit_block, fg_color="transparent")
-        form_row.pack(fill="x")
+        form_row1 = ctk.CTkFrame(edit_block, fg_color="transparent")
+        form_row1.pack(fill="x", pady=(0, 5))
         
-        # Block Name Column (v16.3)
-        block_frame = ctk.CTkFrame(form_row, fg_color="transparent")
-        block_frame.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        gp_frame = ctk.CTkFrame(form_row1, fg_color="transparent")
+        gp_frame.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        ctk.CTkLabel(gp_frame, text="Gram Panchayat (GP) Name", font=("Segoe UI", 10, "bold"), text_color=CLR_CYAN).pack(anchor="w")
+        self.op_gp_entry = ctk.CTkEntry(gp_frame, placeholder_text="Enter GP Name...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER)
+        self.op_gp_entry.pack(fill="x", pady=(5, 0))
+        
+        block_frame = ctk.CTkFrame(form_row1, fg_color="transparent")
+        block_frame.pack(side="right", fill="x", expand=True)
         ctk.CTkLabel(block_frame, text="Block Name", font=("Segoe UI", 10, "bold"), text_color=CLR_CYAN).pack(anchor="w")
         self.op_block_entry = ctk.CTkEntry(block_frame, placeholder_text="Enter Block...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER)
         self.op_block_entry.pack(fill="x", pady=(5, 0))
         
-        name_frame = ctk.CTkFrame(form_row, fg_color="transparent")
+        form_row2 = ctk.CTkFrame(edit_block, fg_color="transparent")
+        form_row2.pack(fill="x", pady=(5, 0))
+        
+        name_frame = ctk.CTkFrame(form_row2, fg_color="transparent")
         name_frame.pack(side="left", fill="x", expand=True, padx=(0, 10))
         ctk.CTkLabel(name_frame, text="Pump Operator Name", font=("Segoe UI", 10, "bold"), text_color=CLR_CYAN).pack(anchor="w")
         self.op_name_entry = ctk.CTkEntry(name_frame, placeholder_text="Enter Name...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER)
         self.op_name_entry.pack(fill="x", pady=(5, 0))
         
-        phone_frame = ctk.CTkFrame(form_row, fg_color="transparent")
+        phone_frame = ctk.CTkFrame(form_row2, fg_color="transparent")
         phone_frame.pack(side="right", fill="x", expand=True)
         ctk.CTkLabel(phone_frame, text="Phone Number", font=("Segoe UI", 10, "bold"), text_color=CLR_CYAN).pack(anchor="w")
         self.op_phone_entry = ctk.CTkEntry(phone_frame, placeholder_text="Enter Phone...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER)
@@ -3920,6 +3934,8 @@ del "%~f0"
         self.notebook_tree.configure(yscrollcommand=vscroll.set)
         
         self.notebook_tree.bind("<<TreeviewSelect>>", self.on_notebook_row_selected)
+        self.notebook_tree.bind("<Button-3>", lambda event: self.show_context_menu(event, self.notebook_tree, "notebook", None))
+        self.notebook_tree.bind("<Button-2>", lambda event: self.show_context_menu(event, self.notebook_tree, "notebook", None))
         
         # Load local phone book cache
         self.operator_data = {} # gp_name -> dict
@@ -3996,7 +4012,10 @@ del "%~f0"
         op_name = values[3]
         phone = values[4]
         
+        self.op_original_gp_name = gp_name
         self.op_selected_gp_lbl.configure(text=f"Selected: {gp_name}")
+        self.op_gp_entry.delete(0, tk.END)
+        self.op_gp_entry.insert(0, gp_name)
         self.op_block_entry.delete(0, tk.END)
         self.op_block_entry.insert(0, block_name)
         self.op_name_entry.delete(0, tk.END)
@@ -4011,12 +4030,26 @@ del "%~f0"
             return
             
         values = self.notebook_tree.item(selected[0], "values")
-        gp_name = values[1]
+        original_gp_name = getattr(self, "op_original_gp_name", "")
+        if not original_gp_name:
+            original_gp_name = values[1]
+            
+        gp_name = self.op_gp_entry.get().strip()
+        if not gp_name:
+            messagebox.showerror("Error", "GP Name cannot be empty.")
+            return
+            
         block_name = self.op_block_entry.get().strip()
         op_name = self.op_name_entry.get().strip()
         phone = self.op_phone_entry.get().strip()
         
         now = int(time.time())
+        
+        # If GP was renamed
+        if original_gp_name and original_gp_name != gp_name:
+            self.operator_data.pop(original_gp_name, None)
+            threading.Thread(target=self.delete_operator_on_server, args=(original_gp_name,), daemon=True).start()
+            
         self.operator_data[gp_name] = {
             "gp_name": gp_name,
             "block_name": block_name,
@@ -4027,10 +4060,162 @@ del "%~f0"
         }
         
         self.save_local_operators()
+        
+        # If renamed, clear search filter so we see the new one
+        if original_gp_name != gp_name:
+            self.op_search_var.set("")
+            
         self.refresh_notebook_table()
         
         # Sync with backend in a separate thread
         threading.Thread(target=self.sync_operator_with_server, args=(gp_name, op_name, phone, block_name, now), daemon=True).start()
+        
+        self.op_original_gp_name = gp_name
+        self.op_selected_gp_lbl.configure(text=f"Selected: {gp_name}")
+
+    def delete_operator_on_server(self, gp_name):
+        hwid = self._get_hwid()
+        url = "http://devash.in/api/delete_operator"
+        payload = {
+            "gp_name": gp_name,
+            "hwid": hwid
+        }
+        try:
+            r = requests.post(url, json=payload, timeout=10)
+            if r.status_code == 200:
+                self.safe_log_update(f"🗑️ [SYNC] Deleted renamed/removed GP '{gp_name}' from server.")
+        except Exception as e:
+            self.safe_log_update(f"⚠️ [SYNC] Failed to delete GP '{gp_name}' on server: {e}")
+
+    def show_context_menu(self, event, tree_widget, source_type, popup_window=None):
+        item_id = tree_widget.identify_row(event.y)
+        if not item_id:
+            return
+            
+        tree_widget.selection_set(item_id)
+        tree_widget.focus(item_id)
+        
+        values = tree_widget.item(item_id, "values")
+        if not values:
+            return
+            
+        gp_name = ""
+        if source_type in ("notebook", "popup"):
+            if len(values) > 1:
+                gp_name = values[1]
+        elif source_type == "history":
+            headers = [tree_widget.heading(col, "text") for col in tree_widget["columns"]]
+            gp_col_idx = -1
+            for idx, h in enumerate(headers):
+                h_lower = str(h).lower()
+                if any(x in h_lower for x in ["gp", "scheme", "gram panchayat", "name", "project"]):
+                    gp_col_idx = idx
+                    break
+            if gp_col_idx == -1:
+                gp_col_idx = 1
+            if len(values) > gp_col_idx:
+                gp_name = values[gp_col_idx]
+                
+        gp_name = str(gp_name).strip()
+        if not gp_name:
+            return
+            
+        menu = tk.Menu(self, tearoff=0, bg="#1e293b", fg="#0ea5e9", activebackground="#0ea5e9", activeforeground="#1e293b", font=("Segoe UI", 10))
+        menu.add_command(label="📋 Copy Scheme Name", command=lambda: self.copy_scheme_name(gp_name))
+        menu.add_command(label="📞 View Operator Details", command=lambda: self.redirect_to_operator_details(gp_name, popup_window))
+        menu.add_command(label="📂 View Scheme History", command=lambda: self.redirect_to_scheme_history(gp_name, popup_window))
+        
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def copy_scheme_name(self, gp_name):
+        self.clipboard_clear()
+        self.clipboard_append(gp_name)
+        self.safe_log_update(f"[SYS] Scheme name '{gp_name}' copied to clipboard.")
+        
+    def redirect_to_operator_details(self, gp_name, popup_window=None):
+        if popup_window:
+            try:
+                popup_window.destroy()
+            except Exception:
+                pass
+        
+        self.main_tabs.set("\U0001f4de OPERATOR NOTEBOOK")
+        
+        if not hasattr(self, "operator_data") or self.operator_data is None:
+            self.operator_data = {}
+            
+        if gp_name not in self.operator_data:
+            self.operator_data[gp_name] = {
+                "gp_name": gp_name,
+                "block_name": "",
+                "operator_name": "",
+                "phone_number": "",
+                "last_updated": 0,
+                "hwid": ""
+            }
+            self.save_local_operators()
+            
+        self.op_search_var.set(gp_name)
+        
+        self.after(100, lambda: self._select_gp_in_notebook(gp_name))
+        
+    def _select_gp_in_notebook(self, gp_name):
+        children = self.notebook_tree.get_children()
+        for child in children:
+            vals = self.notebook_tree.item(child, "values")
+            if len(vals) > 1 and vals[1] == gp_name:
+                self.notebook_tree.selection_set(child)
+                self.notebook_tree.focus(child)
+                self.notebook_tree.see(child)
+                self.on_notebook_row_selected(None)
+                break
+
+    def redirect_to_scheme_history(self, gp_name, popup_window=None):
+        if popup_window:
+            try:
+                popup_window.destroy()
+            except Exception:
+                pass
+                
+        self.main_tabs.set("\U0001f4c2 HISTORICAL VIEWER")
+        
+        if not self.history_tree:
+            self.safe_log_update("[SYS] No report loaded in Historical Viewer.")
+            messagebox.showinfo("No Report Loaded", "Please load a report in the Historical Viewer first to view scheme history.")
+            return
+            
+        self.after(100, lambda: self._select_gp_in_history(gp_name))
+        
+    def _select_gp_in_history(self, gp_name):
+        if not self.history_tree:
+            return
+        headers = [self.history_tree.heading(col, "text") for col in self.history_tree["columns"]]
+        gp_col_idx = -1
+        for idx, h in enumerate(headers):
+            h_lower = str(h).lower()
+            if any(x in h_lower for x in ["gp", "scheme", "gram panchayat", "name", "project"]):
+                gp_col_idx = idx
+                break
+        if gp_col_idx == -1:
+            gp_col_idx = 1
+            
+        children = self.history_tree.get_children()
+        matched = False
+        for child in children:
+            vals = self.history_tree.item(child, "values")
+            if len(vals) > gp_col_idx:
+                val = str(vals[gp_col_idx]).strip()
+                if val.lower() == gp_name.lower() or gp_name.lower() in val.lower():
+                    self.history_tree.selection_set(child)
+                    self.history_tree.focus(child)
+                    self.history_tree.see(child)
+                    matched = True
+                    break
+        if not matched:
+            self.safe_log_update(f"[SYS] Could not find scheme '{gp_name}' in the loaded report.")
 
     def sync_operator_with_server(self, gp_name, op_name, phone, block_name, timestamp):
         hwid = self._get_hwid()

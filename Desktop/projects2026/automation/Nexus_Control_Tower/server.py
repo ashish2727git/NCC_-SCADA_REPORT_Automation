@@ -349,6 +349,10 @@ class OperatorSyncRequest(BaseModel):
     entries: list[OperatorEntry]
     hwid: str
 
+class OperatorDeleteRequest(BaseModel):
+    gp_name: str
+    hwid: str
+
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "service": "Nexus Control Tower"}
@@ -872,6 +876,16 @@ def sync_operators(data: OperatorSyncRequest):
     conn.close()
     threading.Thread(target=sync_db_to_s3, daemon=True).start()
     return {"status": "success", "message": "Synced successfully."}
+
+@app.post("/api/delete_operator")
+def delete_operator(data: OperatorDeleteRequest):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM operator_notebook WHERE gp_name=?", (data.gp_name,))
+    conn.commit()
+    conn.close()
+    threading.Thread(target=sync_db_to_s3, daemon=True).start()
+    return {"status": "success", "message": "Deleted successfully."}
 
 @app.get("/api/get_operators")
 def get_operators():
