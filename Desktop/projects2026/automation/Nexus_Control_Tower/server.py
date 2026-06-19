@@ -117,9 +117,16 @@ def init_db():
                     gp_name TEXT PRIMARY KEY,
                     operator_name TEXT DEFAULT '',
                     phone_number TEXT DEFAULT '',
+                    block_name TEXT DEFAULT '',
                     last_updated INTEGER DEFAULT 0,
                     hwid TEXT DEFAULT ''
                  )''')
+    
+    # Safe migration: Add block_name column if missing to operator_notebook table
+    try:
+        c.execute("ALTER TABLE operator_notebook ADD COLUMN block_name TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
     
     # Table for chat console messages
     c.execute('''CREATE TABLE IF NOT EXISTS chat_messages (
@@ -332,6 +339,7 @@ class OperatorEntry(BaseModel):
     gp_name: str
     operator_name: str = ""
     phone_number: str = ""
+    block_name: str = ""
     last_updated: int = 0
     hwid: str = ""
 
@@ -850,14 +858,14 @@ def sync_operators(data: OperatorSyncRequest):
             if entry.last_updated > db_last_updated:
                 c.execute("""
                     UPDATE operator_notebook 
-                    SET operator_name=?, phone_number=?, last_updated=?, hwid=?
+                    SET operator_name=?, phone_number=?, block_name=?, last_updated=?, hwid=?
                     WHERE gp_name=?
-                """, (entry.operator_name, entry.phone_number, entry.last_updated, data.hwid, entry.gp_name))
+                """, (entry.operator_name, entry.phone_number, entry.block_name, entry.last_updated, data.hwid, entry.gp_name))
         else:
             c.execute("""
-                INSERT INTO operator_notebook (gp_name, operator_name, phone_number, last_updated, hwid)
-                VALUES (?, ?, ?, ?, ?)
-            """, (entry.gp_name, entry.operator_name, entry.phone_number, entry.last_updated, data.hwid))
+                INSERT INTO operator_notebook (gp_name, operator_name, phone_number, block_name, last_updated, hwid)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (entry.gp_name, entry.operator_name, entry.phone_number, entry.block_name, entry.last_updated, data.hwid))
     conn.commit()
     conn.close()
     threading.Thread(target=sync_db_to_s3, daemon=True).start()
@@ -867,7 +875,7 @@ def sync_operators(data: OperatorSyncRequest):
 def get_operators():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("SELECT gp_name, operator_name, phone_number, last_updated, hwid FROM operator_notebook")
+    c.execute("SELECT gp_name, operator_name, phone_number, block_name, last_updated, hwid FROM operator_notebook")
     rows = c.fetchall()
     conn.close()
     
@@ -877,8 +885,9 @@ def get_operators():
             "gp_name": r[0],
             "operator_name": r[1],
             "phone_number": r[2],
-            "last_updated": r[3],
-            "hwid": r[4]
+            "block_name": r[3],
+            "last_updated": r[4],
+            "hwid": r[5]
         })
     return {"status": "success", "entries": entries}
 

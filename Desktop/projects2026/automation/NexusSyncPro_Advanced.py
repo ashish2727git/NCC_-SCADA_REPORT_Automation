@@ -48,7 +48,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "16.0"
+CLIENT_VERSION = "16.3"
 
 def parse_version(version_str):
     """Parses a version string like '15.4-beta' or '15.5' into a comparable tuple.
@@ -1327,7 +1327,7 @@ del "%~f0"
                                        fg_color="#e0f7fa" if UI_THEME == "classic" else "#0d2333",
                                        border_width=0, corner_radius=10,
                                        height=_lc["jjm_height"])
-        self.jjm_outer.pack(fill="both", expand=True, pady=(0, 12))
+        self.jjm_outer.pack(fill="x", expand=False, pady=(0, 12))
         self.jjm_outer.pack_propagate(False)
 
         # Left accent bar (thick cyan stripe)
@@ -1368,8 +1368,9 @@ del "%~f0"
         self.jjm_new_lbl = self._create_metric_card_grid(self.jjm_grid, "NEWLY ADDED", "0", "#fb7185", 1, 1, command=lambda e: self.show_list_popup("JJM NEWLY ADDED", self.jjm_list_data.get("new", [])))
 
         # 6th slot in JJM grid is left empty/symmetric (JJM has 5 boxes, SCADA has 4)
-        self.jjm_empty_lbl = ctk.CTkFrame(self.jjm_grid, fg_color="transparent")
+        self.jjm_empty_lbl = ctk.CTkFrame(self.jjm_grid, fg_color="transparent", height=62, width=10)
         self.jjm_empty_lbl.grid(row=1, column=2, padx=5, pady=5, sticky="nsew")
+        self.jjm_empty_lbl.grid_propagate(False)
 
         # 2. SCADA Telemetry Panel — Purple accent theme
         # Outer wrapper with strong LEFT border accent (purple) to visually identify SCADA section
@@ -1377,7 +1378,7 @@ del "%~f0"
                                          fg_color="#f5f0ff" if UI_THEME == "classic" else "#1a0d33",
                                          border_width=0, corner_radius=10,
                                          height=_lc["scada_height"])
-        self.scada_outer.pack(fill="both", expand=True)
+        self.scada_outer.pack(fill="x", expand=False)
         self.scada_outer.pack_propagate(False)
 
         # Left accent bar (thick purple stripe)
@@ -2910,6 +2911,27 @@ del "%~f0"
             self.scada_data["not_synced"] = sorted(not_synced[gp_col].dropna().astype(str).tolist())
             self.scada_data["new"] = sorted(daily_new_gps)
             
+            # If in SCADA newly added schemes, add them to the existing data of phone book
+            if not hasattr(self, "operator_data") or self.operator_data is None:
+                self.operator_data = {}
+                self.load_local_operators()
+            
+            newly_added_scada = self.scada_data.get("new", [])
+            has_new_ops = False
+            for gp in newly_added_scada:
+                if gp not in self.operator_data:
+                    self.operator_data[gp] = {
+                        "gp_name": gp,
+                        "block_name": "",
+                        "operator_name": "",
+                        "phone_number": "",
+                        "last_updated": 0,
+                        "hwid": ""
+                    }
+                    has_new_ops = True
+            if has_new_ops:
+                self.save_local_operators()
+            
             # --- Update UI Labels ---
             self.after(0, lambda: self.jjm_total_lbl.configure(text=str(jjm_total)))
             self.after(0, lambda: self.jjm_live_lbl.configure(text=str(jjm_live)))
@@ -3663,6 +3685,13 @@ del "%~f0"
         form_row = ctk.CTkFrame(edit_block, fg_color="transparent")
         form_row.pack(fill="x")
         
+        # Block Name Column (v16.3)
+        block_frame = ctk.CTkFrame(form_row, fg_color="transparent")
+        block_frame.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        ctk.CTkLabel(block_frame, text="Block Name", font=("Segoe UI", 10, "bold"), text_color=CLR_CYAN).pack(anchor="w")
+        self.op_block_entry = ctk.CTkEntry(block_frame, placeholder_text="Enter Block...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER)
+        self.op_block_entry.pack(fill="x", pady=(5, 0))
+        
         name_frame = ctk.CTkFrame(form_row, fg_color="transparent")
         name_frame.pack(side="left", fill="x", expand=True, padx=(0, 10))
         ctk.CTkLabel(name_frame, text="Pump Operator Name", font=("Segoe UI", 10, "bold"), text_color=CLR_CYAN).pack(anchor="w")
@@ -3684,6 +3713,16 @@ del "%~f0"
         self.op_save_btn = ctk.CTkButton(btn_row, text="💾 Save & Sync Details", fg_color=CLR_GREEN, hover_color="#059669", text_color="#ffffff", height=35, command=self.save_operator_details)
         self.op_save_btn.pack(side="right")
         
+        # Cloud Sync Entire Phone Book row (v16.2)
+        sync_row = ctk.CTkFrame(edit_block, fg_color="transparent")
+        sync_row.pack(fill="x", pady=(8, 0))
+        
+        self.op_download_btn = ctk.CTkButton(sync_row, text="☁️ Cloud Download All", fg_color="#1d4ed8", hover_color="#1e40af", text_color="#ffffff", height=32, command=self.download_entire_phonebook)
+        self.op_download_btn.pack(side="left", padx=(0, 5))
+        
+        self.op_upload_btn = ctk.CTkButton(sync_row, text="☁️ Cloud Upload All", fg_color="#7c3aed", hover_color="#6d28d9", text_color="#ffffff", height=32, command=self.upload_entire_phonebook)
+        self.op_upload_btn.pack(side="left", padx=(5, 0))
+        
         # Grid/Table View Frame
         grid_container = ctk.CTkFrame(self.tab_notebook, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
         grid_container.pack(fill="both", expand=True, padx=15, pady=(0, 15))
@@ -3695,7 +3734,7 @@ del "%~f0"
         style.map("Notebook.Treeview", background=[('selected', CLR_TREE_SEL)], foreground=[('selected', CLR_TREE_HDR)])
         style.configure("Notebook.Treeview.Heading", background=CLR_TREE_HDR, foreground=CLR_CYAN, font=("Segoe UI", 10, "bold"), borderwidth=1, bordercolor=CLR_BORDER)
         
-        cols = ["sr_no", "gp_name", "operator_name", "phone_number", "last_updated"]
+        cols = ["sr_no", "gp_name", "block_name", "operator_name", "phone_number", "last_updated"]
         self.notebook_tree = ttk.Treeview(grid_container, columns=cols, show="headings", style="Notebook.Treeview")
         self.notebook_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         
@@ -3703,6 +3742,8 @@ del "%~f0"
         self.notebook_tree.column("sr_no", width=60, anchor="center")
         self.notebook_tree.heading("gp_name", text="Gram Panchayat (GP)")
         self.notebook_tree.column("gp_name", width=200, anchor="w")
+        self.notebook_tree.heading("block_name", text="Block Name")
+        self.notebook_tree.column("block_name", width=120, anchor="w")
         self.notebook_tree.heading("operator_name", text="Operator Name")
         self.notebook_tree.column("operator_name", width=150, anchor="w")
         self.notebook_tree.heading("phone_number", text="Operator Phone")
@@ -3748,29 +3789,34 @@ del "%~f0"
         for item in self.notebook_tree.get_children():
             self.notebook_tree.delete(item)
             
-        # Merge keys of operator_data with the scada_data total list
-        gps = set(self.scada_data.get("total", []))
-        gps.update(self.operator_data.keys())
+        # Only show existing operator data keys (don't refresh them with total scada list)
+        if not hasattr(self, "operator_data") or self.operator_data is None:
+            self.operator_data = {}
+            self.load_local_operators()
+
+        gps = set(self.operator_data.keys())
         
         sorted_gps = sorted(list(gps))
         search_query = self.op_search_var.get().strip().lower()
         
         sr_no = 1
         for gp in sorted_gps:
-            if search_query and search_query not in gp.lower():
-                continue
-                
             entry = self.operator_data.get(gp, {})
             op_name = entry.get("operator_name", "")
             phone = entry.get("phone_number", "")
+            block = entry.get("block_name", "")
             last_up = entry.get("last_updated", 0)
             
+            if search_query:
+                if search_query not in gp.lower() and search_query not in block.lower():
+                    continue
+                
             if last_up > 0:
                 time_str = datetime.fromtimestamp(last_up).strftime("%d-%b-%Y %I:%M %p")
             else:
                 time_str = "Not Set"
                 
-            self.notebook_tree.insert("", "end", values=(sr_no, gp, op_name, phone, time_str))
+            self.notebook_tree.insert("", "end", values=(sr_no, gp, block, op_name, phone, time_str))
             sr_no += 1
 
     def filter_operators(self):
@@ -3782,10 +3828,13 @@ del "%~f0"
             return
         values = self.notebook_tree.item(selected[0], "values")
         gp_name = values[1]
-        op_name = values[2]
-        phone = values[3]
+        block_name = values[2]
+        op_name = values[3]
+        phone = values[4]
         
         self.op_selected_gp_lbl.configure(text=f"Selected: {gp_name}")
+        self.op_block_entry.delete(0, tk.END)
+        self.op_block_entry.insert(0, block_name)
         self.op_name_entry.delete(0, tk.END)
         self.op_name_entry.insert(0, op_name)
         self.op_phone_entry.delete(0, tk.END)
@@ -3799,12 +3848,14 @@ del "%~f0"
             
         values = self.notebook_tree.item(selected[0], "values")
         gp_name = values[1]
+        block_name = self.op_block_entry.get().strip()
         op_name = self.op_name_entry.get().strip()
         phone = self.op_phone_entry.get().strip()
         
         now = int(time.time())
         self.operator_data[gp_name] = {
             "gp_name": gp_name,
+            "block_name": block_name,
             "operator_name": op_name,
             "phone_number": phone,
             "last_updated": now,
@@ -3815,9 +3866,9 @@ del "%~f0"
         self.refresh_notebook_table()
         
         # Sync with backend in a separate thread
-        threading.Thread(target=self.sync_operator_with_server, args=(gp_name, op_name, phone, now), daemon=True).start()
+        threading.Thread(target=self.sync_operator_with_server, args=(gp_name, op_name, phone, block_name, now), daemon=True).start()
 
-    def sync_operator_with_server(self, gp_name, op_name, phone, timestamp):
+    def sync_operator_with_server(self, gp_name, op_name, phone, block_name, timestamp):
         hwid = self._get_hwid()
         url = "http://devash.in/api/sync_operators"
         payload = {
@@ -3825,6 +3876,7 @@ del "%~f0"
                 "gp_name": gp_name,
                 "operator_name": op_name,
                 "phone_number": phone,
+                "block_name": block_name,
                 "last_updated": timestamp,
                 "hwid": hwid
             }],
@@ -3836,6 +3888,74 @@ del "%~f0"
                 self.safe_log_update(f"☁️ [SYNC] Operator details for {gp_name} backed up to server.")
         except Exception as e:
             self.safe_log_update(f"⚠️ [SYNC] Failed to backup operator to cloud: {e}")
+
+    def download_entire_phonebook(self):
+        def task():
+            url = "http://devash.in/api/get_operators"
+            try:
+                self.safe_log_update("[SYS] Downloading entire phone book from server...")
+                r = requests.get(url, timeout=15)
+                if r.status_code == 200:
+                    data = r.json()
+                    entries = data.get("entries", [])
+                    if not entries:
+                        self.safe_log_update("[SYS] Server phone book is empty.")
+                        return
+                    
+                    if not hasattr(self, "operator_data") or self.operator_data is None:
+                        self.operator_data = {}
+                    
+                    for entry in entries:
+                        gp = entry.get("gp_name")
+                        if gp:
+                            self.operator_data[gp] = {
+                                "gp_name": gp,
+                                "block_name": entry.get("block_name", ""),
+                                "operator_name": entry.get("operator_name", ""),
+                                "phone_number": entry.get("phone_number", ""),
+                                "last_updated": entry.get("last_updated", 0),
+                                "hwid": entry.get("hwid", "")
+                            }
+                    self.save_local_operators()
+                    self.after(0, self.refresh_notebook_table)
+                    self.safe_log_update(f"☁️ [SYNC] Successfully downloaded {len(entries)} operator contacts from server.")
+                else:
+                    self.safe_log_update(f"⚠️ [ERR] Download failed: Server returned status {r.status_code}")
+            except Exception as e:
+                self.safe_log_update(f"⚠️ [ERR] Failed to download phone book: {e}")
+        threading.Thread(target=task, daemon=True).start()
+
+    def upload_entire_phonebook(self):
+        def task():
+            if not hasattr(self, "operator_data") or not self.operator_data:
+                self.safe_log_update("[SYS] Phone book is empty. Nothing to upload.")
+                return
+            url = "http://devash.in/api/sync_operators"
+            hwid = self._get_hwid()
+            entries_list = []
+            for gp, entry in self.operator_data.items():
+                entries_list.append({
+                    "gp_name": gp,
+                    "operator_name": entry.get("operator_name", ""),
+                    "phone_number": entry.get("phone_number", ""),
+                    "block_name": entry.get("block_name", ""),
+                    "last_updated": entry.get("last_updated", int(time.time())),
+                    "hwid": hwid
+                })
+            payload = {
+                "entries": entries_list,
+                "hwid": hwid
+            }
+            try:
+                self.safe_log_update(f"[SYS] Uploading {len(entries_list)} contact entries to server...")
+                r = requests.post(url, json=payload, timeout=20)
+                if r.status_code == 200:
+                    self.safe_log_update(f"☁️ [SYNC] Successfully uploaded/synced {len(entries_list)} contacts to server.")
+                else:
+                    self.safe_log_update(f"⚠️ [ERR] Upload failed: Server returned status {r.status_code}")
+            except Exception as e:
+                self.safe_log_update(f"⚠️ [ERR] Failed to upload phone book: {e}")
+        threading.Thread(target=task, daemon=True).start()
 
     def fetch_operators_from_server(self):
         url = "http://devash.in/api/get_operators"
@@ -3853,6 +3973,7 @@ del "%~f0"
                     if last_up > local_last_up:
                         self.operator_data[gp] = {
                             "gp_name": gp,
+                            "block_name": entry.get("block_name", ""),
                             "operator_name": entry.get("operator_name", ""),
                             "phone_number": entry.get("phone_number", ""),
                             "last_updated": last_up,
