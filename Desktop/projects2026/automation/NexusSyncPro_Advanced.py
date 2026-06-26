@@ -50,7 +50,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "16.9"
+CLIENT_VERSION = "17.1"
 
 # ── SELF-HEALING FILENAME UPDATE ──
 try:
@@ -534,11 +534,21 @@ class NexusSyncPro(ctk.CTk):
         
         # Populate operators notebook from the latest file in a background thread if empty
         def init_operators_on_startup():
-            if not hasattr(self, "operator_data") or not self.operator_data:
-                self.operator_data = {}
-                self.load_local_operators()
+            if not hasattr(self, "scada_operator_data") or self.scada_operator_data is None:
+                self.scada_operator_data = {}
+            if not hasattr(self, "jjm_operator_data") or self.jjm_operator_data is None:
+                self.jjm_operator_data = {}
+            if not hasattr(self, "op_mode"):
+                self.op_mode = "scada"
+            self.operator_data = self.scada_operator_data
+            
+            self.load_local_operators()
                 
-            if not self.operator_data:
+            # We don't populate JJM from operator_details.xlsx anymore.
+            # Instead, the JJM phonebook is dynamically populated with active schemes pulled from the portal.
+                
+            # If SCADA phonebook is empty, fallback to scanning daily files
+            if not self.scada_operator_data:
                 try:
                     xlsx_files = []
                     folders_to_scan = [self.watch_folder]
@@ -553,7 +563,7 @@ class NexusSyncPro(ctk.CTk):
                     
                     if xlsx_files:
                         latest_xlsx = max(xlsx_files, key=os.path.getctime)
-                        self.safe_log_update(f"[SYS] First-time startup: Populating GPs from {os.path.basename(latest_xlsx)}...")
+                        self.safe_log_update(f"[SYS] First-time startup: Populating SCADA GPs from {os.path.basename(latest_xlsx)}...")
                         df = pd.read_excel(latest_xlsx, header=None, nrows=15)
                         header_row = df.notna().sum(axis=1).idxmax()
                         df = pd.read_excel(latest_xlsx, header=header_row)
@@ -581,23 +591,22 @@ class NexusSyncPro(ctk.CTk):
                             g_val = str(row[gp_col]).strip() if pd.notna(row[gp_col]) else ""
                             if not g_val or g_val == "nan" or any(x in g_val.upper() for x in ["SUCCESS COUNT", "STALE COUNT", "NEW GP COUNT", "TOTAL"]):
                                 continue
-                            b_val = str(row[block_col]).strip() if (block_col is not None and pd.notna(row[block_col])) else ""
-                            gp_block_map[g_val] = b_val
                             
-                        for gp, block in gp_block_map.items():
-                            if gp not in self.operator_data:
-                                self.operator_data[gp] = {
-                                    "gp_name": gp,
-                                    "block_name": block,
+                            if g_val not in self.scada_operator_data:
+                                self.scada_operator_data[g_val] = {
+                                    "gp_name": g_val,
+                                    "block_name": "",
                                     "operator_name": "",
                                     "phone_number": "",
                                     "last_updated": 0,
                                     "hwid": ""
                                 }
                         self.save_local_operators()
-                        self.after(0, self.refresh_notebook_table)
                 except Exception as e:
                     self.safe_log_update(f"[SYS] Failed to pre-populate operators on boot: {e}")
+            
+            # Switch to active phonebook mode and refresh the table
+            self.after(0, lambda: self.switch_phonebook_mode(getattr(self, "op_mode", "scada")))
 
         threading.Thread(target=init_operators_on_startup, daemon=True).start()
         
@@ -1335,10 +1344,18 @@ del "%~f0"
                       fg_color="transparent", border_width=1, border_color=CLR_BORDER,
                       font=("Segoe UI", 12, "bold"), height=34).pack(fill="x")
 
-        self.contact_listbox = tk.Listbox(self.sidebar_scroll, bg=CLR_BG, fg=CLR_TEXT, borderwidth=0,
+        listbox_frame = ctk.CTkFrame(self.sidebar_scroll, fg_color="transparent")
+        listbox_frame.pack(fill="both", expand=True, padx=25, pady=10)
+
+        self.contact_listbox = tk.Listbox(listbox_frame, bg=CLR_BG, fg=CLR_TEXT, borderwidth=0,
                                           highlightthickness=0, font=("Segoe UI", 11),
                                           selectbackground=CLR_CYAN, selectforeground=CLR_BG)
-        self.contact_listbox.pack(fill="both", expand=True, padx=25, pady=10)
+        self.contact_listbox.pack(side="left", fill="both", expand=True)
+
+        list_scroll = ctk.CTkScrollbar(listbox_frame, orientation="vertical", command=self.contact_listbox.yview)
+        list_scroll.pack(side="right", fill="y")
+        self.contact_listbox.configure(yscrollcommand=list_scroll.set)
+
         self.refresh_contact_ui()
         ctk.CTkButton(self.sidebar_scroll, text="🗑 Remove Selected", text_color="#ff4d4d",
                       fg_color="transparent", command=self.remove_contact).pack(pady=(0, 10))
@@ -1875,18 +1892,21 @@ del "%~f0"
         )
         self.view_metrics_btn.pack(side="right", padx=(0, 8), pady=10)
 
-        # ── ZOOM CONTROL — compact, bottom-right of the controls bar ──
-        zoom_frame = ctk.CTkFrame(controls_frame, fg_color="transparent")
-        zoom_frame.pack(side="right", padx=(0, 6), pady=8)
+        # ── ZOOM CONTROL — Moved to bottom of tab ──
+        self.history_zoom_frame = ctk.CTkFrame(self.tab_history, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
+        self.history_zoom_frame.pack(fill="x", side="bottom", padx=15, pady=(0, 10))
 
-        ctk.CTkLabel(zoom_frame, text="\U0001f50d",
+        zoom_inner = ctk.CTkFrame(self.history_zoom_frame, fg_color="transparent")
+        zoom_inner.pack(side="right", padx=15, pady=8)
+
+        ctk.CTkLabel(zoom_inner, text="🔍",
                      font=("Segoe UI", 13), text_color=CLR_DIM).pack(side="left", padx=(0, 3))
         self.zoom_var = tk.IntVar(value=100)
-        self.zoom_label = ctk.CTkLabel(zoom_frame, text="100%",
+        self.zoom_label = ctk.CTkLabel(zoom_inner, text="100%",
                                         font=("Segoe UI", 10, "bold"), text_color=CLR_CYAN, width=38)
         self.zoom_label.pack(side="left")
         self.zoom_slider = ctk.CTkSlider(
-            zoom_frame, from_=10, to=200, number_of_steps=38,
+            zoom_inner, from_=10, to=200, number_of_steps=38,
             variable=self.zoom_var, width=160,
             command=self._on_zoom_change
         )
@@ -2223,6 +2243,15 @@ del "%~f0"
             header_row = int(df.notna().sum(axis=1).idxmax())
             df = pd.read_excel(filepath, header=header_row)
             df.columns = [str(c).strip() for c in df.columns]
+            # Drop code columns and serial number columns
+            cols_to_drop = []
+            for c in df.columns:
+                c_str = str(c).strip().lower()
+                if "code" in c_str:
+                    cols_to_drop.append(c)
+                elif c_str in ["sr. no", "sr no", "sr.no", "sr_no", "s.no", "s.no.", "sno", "serial no", "serial number", "sr. number", "sl. no", "sl no", "sl.no", "slno"]:
+                    cols_to_drop.append(c)
+            df = df.drop(columns=cols_to_drop)
             if df.empty:
                 messagebox.showwarning("Empty File", "The selected file has no readable data.")
                 return
@@ -2252,11 +2281,20 @@ del "%~f0"
                             borderwidth=1, bordercolor=CLR_BORDER)
 
             cols = ["sr_no"] + list(df.columns)
-            self.grid_frame.rowconfigure(0, weight=1)
+            self.grid_frame.rowconfigure(0, weight=0)
+            self.grid_frame.rowconfigure(1, weight=1)
+            self.grid_frame.rowconfigure(2, weight=0)
             self.grid_frame.columnconfigure(0, weight=1)
 
+            # File info banner (top frame containing search and info, now at row 0)
+            row_count = len(df)
+            col_count = len(df.columns)
+            top_frame = ctk.CTkFrame(self.grid_frame, fg_color="transparent")
+            top_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=4, pady=(0, 4))
+            top_frame.columnconfigure(0, weight=1)
+
             self.history_tree = ttk.Treeview(self.grid_frame, columns=cols, show="headings", style="Nexus.Treeview")
-            self.history_tree.grid(row=0, column=0, sticky="nsew")
+            self.history_tree.grid(row=1, column=0, sticky="nsew")
 
             self.history_tree.heading("sr_no", text="Sr.No", command=lambda: self.sort_history_column("sr_no", False))
             self.history_tree.column("sr_no", width=55, minwidth=50, anchor="center")
@@ -2265,25 +2303,34 @@ del "%~f0"
                 self.history_tree.column(col, width=150, minwidth=80, anchor="w")
 
             v_scroll = ctk.CTkScrollbar(self.grid_frame, orientation="vertical", command=self.history_tree.yview)
-            v_scroll.grid(row=0, column=1, sticky="ns")
+            v_scroll.grid(row=1, column=1, sticky="ns")
             h_scroll = ctk.CTkScrollbar(self.grid_frame, orientation="horizontal", command=self.history_tree.xview)
-            h_scroll.grid(row=1, column=0, sticky="ew")
+            h_scroll.grid(row=2, column=0, sticky="ew")
             self.history_tree.configure(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
 
-            # File info banner
-            row_count = len(df)
-            col_count = len(df.columns)
             info_lbl = ctk.CTkLabel(
-                self.grid_frame,
+                top_frame,
                 text=f"📄  {os.path.basename(filepath)}  │  {row_count} rows × {col_count} columns",
                 font=("Segoe UI", 10, "bold"), text_color=CLR_DIM,
-                fg_color="#0f172a", anchor="w"
+                anchor="w"
             )
-            info_lbl.grid(row=2, column=0, columnspan=2, sticky="ew", padx=4, pady=(2, 0))
-
-            for idx, row in enumerate(df.values, 1):
-                vals = [idx] + ["" if pd.isna(x) else str(x) for x in row]
-                self.history_tree.insert("", "end", values=vals)
+            info_lbl.grid(row=0, column=0, sticky="w")
+            
+            search_var = tk.StringVar()
+            search_entry = ctk.CTkEntry(top_frame, textvariable=search_var, placeholder_text="🔍 Search rows...", width=200, height=24)
+            search_entry.grid(row=0, column=1, sticky="e")
+            
+            def filter_tree(*args):
+                query = search_var.get().strip().lower()
+                self.history_tree.delete(*self.history_tree.get_children())
+                for idx, row in enumerate(df.values, 1):
+                    vals = [idx] + ["" if pd.isna(x) else str(x) for x in row]
+                    if query and not any(query in str(v).lower() for v in vals):
+                        continue
+                    self.history_tree.insert("", "end", values=vals)
+                    
+            search_var.trace_add("write", filter_tree)
+            filter_tree()
 
             self.history_tree.bind("<Double-1>", self.on_history_cell_double_click)
             self.history_tree.bind("<Button-3>", lambda event: self.show_context_menu(event, self.history_tree, "history", None))
@@ -2301,6 +2348,15 @@ del "%~f0"
         try:
             self.loaded_filepath = filepath
             self.loaded_df = pd.read_excel(filepath)
+            # Drop code columns and serial number columns
+            cols_to_drop = []
+            for c in self.loaded_df.columns:
+                c_str = str(c).strip().lower()
+                if "code" in c_str:
+                    cols_to_drop.append(c)
+                elif c_str in ["sr. no", "sr no", "sr.no", "sr_no", "s.no", "s.no.", "sno", "serial no", "serial number", "sr. number", "sl. no", "sl no", "sl.no", "slno"]:
+                    cols_to_drop.append(c)
+            self.loaded_df = self.loaded_df.drop(columns=cols_to_drop)
             if self.loaded_df.empty:
                 return
                 
@@ -2328,11 +2384,28 @@ del "%~f0"
                             bordercolor=CLR_BORDER)
             
             cols = ["sr_no"] + list(self.loaded_df.columns)
-            self.grid_frame.rowconfigure(0, weight=1)
+            self.grid_frame.rowconfigure(0, weight=0)
+            self.grid_frame.rowconfigure(1, weight=1)
+            self.grid_frame.rowconfigure(2, weight=0)
             self.grid_frame.columnconfigure(0, weight=1)
             
+            # File info banner (top frame containing search and info, now at row 0)
+            row_count = len(self.loaded_df)
+            col_count = len(self.loaded_df.columns)
+            top_frame = ctk.CTkFrame(self.grid_frame, fg_color="transparent")
+            top_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=4, pady=(0, 4))
+            top_frame.columnconfigure(0, weight=1)
+            
+            info_lbl = ctk.CTkLabel(
+                top_frame,
+                text=f"📄  {os.path.basename(filepath)}  │  {row_count} rows × {col_count} columns",
+                font=("Segoe UI", 10, "bold"), text_color=CLR_DIM,
+                anchor="w"
+            )
+            info_lbl.grid(row=0, column=0, sticky="w")
+            
             self.history_tree = ttk.Treeview(self.grid_frame, columns=cols, show="headings", style="Nexus.Treeview")
-            self.history_tree.grid(row=0, column=0, sticky="nsew")
+            self.history_tree.grid(row=1, column=0, sticky="nsew")
             
             self.history_tree.heading("sr_no", text="Sr. No.", command=lambda: self.sort_history_column("sr_no", False))
             self.history_tree.column("sr_no", width=60, minwidth=60, anchor="center")
@@ -2342,16 +2415,28 @@ del "%~f0"
                 self.history_tree.column(col, width=150, minwidth=100, anchor="w")
                 
             v_scroll = ctk.CTkScrollbar(self.grid_frame, orientation="vertical", command=self.history_tree.yview)
-            v_scroll.grid(row=0, column=1, sticky="ns")
+            v_scroll.grid(row=1, column=1, sticky="ns")
             
             h_scroll = ctk.CTkScrollbar(self.grid_frame, orientation="horizontal", command=self.history_tree.xview)
-            h_scroll.grid(row=1, column=0, sticky="ew")
+            h_scroll.grid(row=2, column=0, sticky="ew")
             
             self.history_tree.configure(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
             
-            for idx, row in enumerate(self.loaded_df.values, 1):
-                vals = [idx] + ["" if pd.isna(x) else str(x) for x in row]
-                self.history_tree.insert("", "end", values=vals)
+            search_var = tk.StringVar()
+            search_entry = ctk.CTkEntry(top_frame, textvariable=search_var, placeholder_text="🔍 Search rows...", width=200, height=24)
+            search_entry.grid(row=0, column=1, sticky="e")
+            
+            def filter_tree(*args):
+                query = search_var.get().strip().lower()
+                self.history_tree.delete(*self.history_tree.get_children())
+                for idx, row in enumerate(self.loaded_df.values, 1):
+                    vals = [idx] + ["" if pd.isna(x) else str(x) for x in row]
+                    if query and not any(query in str(v).lower() for v in vals):
+                        continue
+                    self.history_tree.insert("", "end", values=vals)
+                    
+            search_var.trace_add("write", filter_tree)
+            filter_tree()
                 
             self.history_tree.bind("<Double-1>", self.on_history_cell_double_click)
             self.history_tree.bind("<Button-3>", lambda event: self.show_context_menu(event, self.history_tree, "history", None))
@@ -3067,45 +3152,28 @@ del "%~f0"
             
             # If the phone book is empty, fetch all schemes from the SCADA data for the first time.
             # Otherwise, just add any newly added schemes from today's SCADA data.
-            if not hasattr(self, "operator_data") or self.operator_data is None:
-                self.operator_data = {}
+            if not hasattr(self, "scada_operator_data") or self.scada_operator_data is None:
+                self.scada_operator_data = {}
                 self.load_local_operators()
             
             gps_to_add = []
-            if not self.operator_data:
-                gps_to_add = self.scada_data.get("total", [])
-                self.safe_log_update("[SYS] Operator phone book is empty. Populating all SCADA schemes for the first time...")
-            else:
-                gps_to_add = self.scada_data.get("new", [])
+            is_jjm_file = "jjm" in os.path.basename(latest_file_path).lower() or "jal jeevan" in os.path.basename(latest_file_path).lower()
+            if not is_jjm_file:
+                if not self.scada_operator_data:
+                    gps_to_add = self.scada_data.get("total", [])
+                    self.safe_log_update("[SYS] SCADA Operator phone book is empty. Populating all SCADA schemes for the first time...")
+                else:
+                    gps_to_add = self.scada_data.get("new", [])
                 
             has_new_ops = False
             
-            # Find block column using robust header search
-            block_idx = None
-            try:
-                df_header = pd.read_excel(latest_file_path, header=None, nrows=5)
-                for col_idx in range(df_header.shape[1]):
-                    col_values = df_header.iloc[:, col_idx].dropna().astype(str).str.lower().tolist()
-                    if any("block" in val for val in col_values):
-                        block_idx = col_idx
-                        break
-            except: pass
-            
-            block_col = df.columns[block_idx] if block_idx is not None else None
-            gp_block_map = {}
-            if block_col:
-                for _, row in df.iterrows():
-                    g_val = str(row[gp_col]).strip() if pd.notna(row[gp_col]) else ""
-                    b_val = str(row[block_col]).strip() if pd.notna(row[block_col]) else ""
-                    if g_val:
-                        gp_block_map[g_val] = b_val
+            # Block mapping logic removed; autofill disabled.
                         
             for gp in gps_to_add:
-                if gp not in self.operator_data:
-                    block_name = gp_block_map.get(gp, "")
-                    self.operator_data[gp] = {
+                if gp not in self.scada_operator_data:
+                    self.scada_operator_data[gp] = {
                         "gp_name": gp,
-                        "block_name": block_name,
+                        "block_name": "",
                         "operator_name": "",
                         "phone_number": "",
                         "last_updated": 0,
@@ -3114,6 +3182,42 @@ del "%~f0"
                     has_new_ops = True
             if has_new_ops:
                 self.save_local_operators()
+                # Ensure the current active reference is correct if in SCADA mode
+                if getattr(self, "op_mode", "scada") == "scada":
+                    self.operator_data = self.scada_operator_data
+
+            # ── JJM Phonebook Auto-Population ──
+            # If the JJM phone book is empty, populate from all currently active JJM schemes pulled from the portal.
+            # Otherwise, just add any newly added JJM schemes from the portal.
+            if not hasattr(self, "jjm_operator_data") or self.jjm_operator_data is None:
+                self.jjm_operator_data = {}
+                self.load_local_operators()
+                
+            jjm_gps_to_add = []
+            if not self.jjm_operator_data:
+                jjm_gps_to_add = self.jjm_list_data.get("total", [])
+                if jjm_gps_to_add and jjm_gps_to_add != ["Data could not be fetched internally."]:
+                    self.safe_log_update("[SYS] JJM Operator phone book is empty. Populating all pulled JJM schemes for the first time...")
+            else:
+                jjm_gps_to_add = self.jjm_list_data.get("new", [])
+                
+            has_new_jjm = False
+            for gp in jjm_gps_to_add:
+                if gp and gp != "Data could not be fetched internally." and gp not in self.jjm_operator_data:
+                    self.jjm_operator_data[gp] = {
+                        "gp_name": gp,
+                        "block_name": "",
+                        "operator_name": "",
+                        "phone_number": "",
+                        "last_updated": 0,
+                        "hwid": ""
+                    }
+                    has_new_jjm = True
+            if has_new_jjm:
+                self.save_local_operators()
+                # Ensure the current active reference is correct if in JJM mode
+                if getattr(self, "op_mode", "scada") == "jjm":
+                    self.operator_data = self.jjm_operator_data
             
             # --- Update UI Labels ---
             self.after(0, lambda: self.jjm_total_lbl.configure(text=str(jjm_total)))
@@ -3729,6 +3833,37 @@ del "%~f0"
         self.after(0, lambda: self.jjm_leftover_lbl.configure(text=str(jjm_leftover)))
         self.after(0, lambda: self.jjm_new_lbl.configure(text=str(len(self.jjm_list_data.get("new", [])))))
         
+        # Auto-populate JJM phonebook with manual pull results
+        if not hasattr(self, "jjm_operator_data") or self.jjm_operator_data is None:
+            self.jjm_operator_data = {}
+            self.load_local_operators()
+            
+        jjm_gps_to_add = []
+        if not self.jjm_operator_data:
+            jjm_gps_to_add = self.jjm_list_data.get("total", [])
+            if jjm_gps_to_add and jjm_gps_to_add != ["Data could not be fetched internally."]:
+                self.safe_log_update("[SYS] JJM Operator phone book is empty. Populating all pulled JJM schemes for the first time...")
+        else:
+            jjm_gps_to_add = self.jjm_list_data.get("new", [])
+            
+        has_new_jjm = False
+        for gp in jjm_gps_to_add:
+            if gp and gp != "Data could not be fetched internally." and gp not in self.jjm_operator_data:
+                self.jjm_operator_data[gp] = {
+                    "gp_name": gp,
+                    "block_name": "",
+                    "operator_name": "",
+                    "phone_number": "",
+                    "last_updated": 0,
+                    "hwid": ""
+                }
+                has_new_jjm = True
+        if has_new_jjm:
+            self.save_local_operators()
+            if getattr(self, "op_mode", "scada") == "jjm":
+                self.operator_data = self.jjm_operator_data
+                self.after(0, self.refresh_notebook_table)
+
         timestamp = datetime.now().strftime("%b %d - %I:%M %p")
         self.safe_history_update(f"[+] JJM Pulled: {timestamp} | Live: {jjm_live} | Total: {jjm_total}")
         
@@ -3849,6 +3984,30 @@ del "%~f0"
     # ──────────────────────────────────────────────────────────────────────────
     def init_notebook_tab(self):
         """Initialize Gram Panchayat (GP) Pump Operator Notebook tab."""
+        # ── Phonebook Module Switcher (SCADA vs JJM) ──
+        selector_frame = ctk.CTkFrame(self.tab_notebook, fg_color="transparent")
+        selector_frame.pack(fill="x", padx=15, pady=(15, 0))
+        
+        self.scada_pb_btn = ctk.CTkButton(
+            selector_frame, 
+            text="📞 SCADA Phonebook", 
+            font=("Segoe UI", 12, "bold"),
+            height=38,
+            width=180,
+            command=lambda: self.switch_phonebook_mode("scada")
+        )
+        self.scada_pb_btn.pack(side="left", padx=(0, 10))
+        
+        self.jjm_pb_btn = ctk.CTkButton(
+            selector_frame, 
+            text="📞 JJM Phonebook", 
+            font=("Segoe UI", 12, "bold"),
+            height=38,
+            width=180,
+            command=lambda: self.switch_phonebook_mode("jjm")
+        )
+        self.jjm_pb_btn.pack(side="left")
+
         top_frame = ctk.CTkFrame(self.tab_notebook, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
         top_frame.pack(fill="x", padx=15, pady=15)
         
@@ -3858,7 +4017,7 @@ del "%~f0"
         ctk.CTkLabel(search_block, text="🔍 Search GP Schemes", font=("Segoe UI", 10, "bold"), text_color=CLR_CYAN).pack(anchor="w")
         self.op_search_var = tk.StringVar()
         self.op_search_var.trace_add("write", lambda *args: self.filter_operators())
-        self.op_search_entry = ctk.CTkEntry(search_block, placeholder_text="Type to filter...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER, textvariable=self.op_search_var)
+        self.op_search_entry = ctk.CTkEntry(search_block, placeholder_text="Type to filter...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER, textvariable=self.op_search_var, text_color=CLR_TEXT)
         self.op_search_entry.pack(fill="x", pady=(5, 0))
         
         # Detail / Edit form
@@ -3872,13 +4031,13 @@ del "%~f0"
         gp_frame = ctk.CTkFrame(form_row1, fg_color="transparent")
         gp_frame.pack(side="left", fill="x", expand=True, padx=(0, 10))
         ctk.CTkLabel(gp_frame, text="Gram Panchayat (GP) Name", font=("Segoe UI", 10, "bold"), text_color=CLR_CYAN).pack(anchor="w")
-        self.op_gp_entry = ctk.CTkEntry(gp_frame, placeholder_text="Enter GP Name...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER)
+        self.op_gp_entry = ctk.CTkEntry(gp_frame, placeholder_text="Enter GP Name...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER, text_color=CLR_TEXT)
         self.op_gp_entry.pack(fill="x", pady=(5, 0))
         
         block_frame = ctk.CTkFrame(form_row1, fg_color="transparent")
         block_frame.pack(side="right", fill="x", expand=True)
         ctk.CTkLabel(block_frame, text="Block Name", font=("Segoe UI", 10, "bold"), text_color=CLR_CYAN).pack(anchor="w")
-        self.op_block_entry = ctk.CTkEntry(block_frame, placeholder_text="Enter Block...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER)
+        self.op_block_entry = ctk.CTkEntry(block_frame, placeholder_text="Enter Block...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER, text_color=CLR_TEXT)
         self.op_block_entry.pack(fill="x", pady=(5, 0))
         
         form_row2 = ctk.CTkFrame(edit_block, fg_color="transparent")
@@ -3887,13 +4046,13 @@ del "%~f0"
         name_frame = ctk.CTkFrame(form_row2, fg_color="transparent")
         name_frame.pack(side="left", fill="x", expand=True, padx=(0, 10))
         ctk.CTkLabel(name_frame, text="Pump Operator Name", font=("Segoe UI", 10, "bold"), text_color=CLR_CYAN).pack(anchor="w")
-        self.op_name_entry = ctk.CTkEntry(name_frame, placeholder_text="Enter Name...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER)
+        self.op_name_entry = ctk.CTkEntry(name_frame, placeholder_text="Enter Name...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER, text_color=CLR_TEXT)
         self.op_name_entry.pack(fill="x", pady=(5, 0))
         
         phone_frame = ctk.CTkFrame(form_row2, fg_color="transparent")
         phone_frame.pack(side="right", fill="x", expand=True)
         ctk.CTkLabel(phone_frame, text="Phone Number", font=("Segoe UI", 10, "bold"), text_color=CLR_CYAN).pack(anchor="w")
-        self.op_phone_entry = ctk.CTkEntry(phone_frame, placeholder_text="Enter Phone...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER)
+        self.op_phone_entry = ctk.CTkEntry(phone_frame, placeholder_text="Enter Phone...", height=35, fg_color=CLR_LOG_BG, border_color=CLR_BORDER, text_color=CLR_TEXT)
         self.op_phone_entry.pack(fill="x", pady=(5, 0))
         
         btn_row = ctk.CTkFrame(edit_block, fg_color="transparent")
@@ -3904,6 +4063,9 @@ del "%~f0"
         
         self.op_save_btn = ctk.CTkButton(btn_row, text="💾 Save & Sync Details", fg_color=CLR_GREEN, hover_color="#059669", text_color="#ffffff", height=35, command=self.save_operator_details)
         self.op_save_btn.pack(side="right")
+        
+        self.op_delete_btn = ctk.CTkButton(btn_row, text="❌ Delete Record", fg_color="#ef4444", hover_color="#dc2626", text_color="#ffffff", height=35, command=self.delete_operator_record)
+        self.op_delete_btn.pack(side="right", padx=(0, 10))
         
         # Cloud Sync Entire Phone Book row (v16.2)
         sync_row = ctk.CTkFrame(edit_block, fg_color="transparent")
@@ -3952,29 +4114,155 @@ del "%~f0"
         self.notebook_tree.bind("<Button-2>", lambda event: self.show_context_menu(event, self.notebook_tree, "notebook", None))
         
         # Load local phone book cache
-        self.operator_data = {} # gp_name -> dict
+        self.scada_operator_data = {}
+        self.jjm_operator_data = {}
+        self.op_mode = "scada"
+        self.operator_data = self.scada_operator_data
+        
         self.load_local_operators()
-        self.refresh_notebook_table()
+        self.switch_phonebook_mode("scada")
         
         # Fetch latest operators from Control Tower in background
         threading.Thread(target=self.fetch_operators_from_server, daemon=True).start()
 
+    def switch_phonebook_mode(self, mode):
+        self.op_mode = mode
+        if mode == "scada":
+            self.operator_data = self.scada_operator_data
+            self.scada_pb_btn.configure(fg_color=CLR_CYAN, text_color="#ffffff", border_width=0)
+            self.jjm_pb_btn.configure(fg_color=CLR_CARD, text_color=CLR_TEXT, border_width=1, border_color=CLR_BORDER)
+            self.safe_log_update("[SYS] Switched to SCADA Phonebook module.")
+        else:
+            self.operator_data = self.jjm_operator_data
+            self.scada_pb_btn.configure(fg_color=CLR_CARD, text_color=CLR_TEXT, border_width=1, border_color=CLR_BORDER)
+            self.jjm_pb_btn.configure(fg_color=CLR_CYAN, text_color="#ffffff", border_width=0)
+            self.safe_log_update("[SYS] Switched to JJM Phonebook module.")
+            
+        # Clear editing/search details
+        self.op_search_var.set("")
+        self.op_original_gp_name = ""
+        self.op_selected_gp_lbl.configure(text="No GP Selected")
+        self.op_gp_entry.delete(0, tk.END)
+        self.op_block_entry.delete(0, tk.END)
+        self.op_name_entry.delete(0, tk.END)
+        self.op_phone_entry.delete(0, tk.END)
+        
+        self.refresh_notebook_table()
+
     def load_local_operators(self):
+        # Load SCADA phonebook
         op_file = os.path.join(_BASE_DIR, "operator_notebook.json")
         if os.path.exists(op_file):
             try:
                 with open(op_file, "r") as f:
-                    self.operator_data = json.load(f)
+                    self.scada_operator_data = json.load(f)
             except Exception:
-                pass
+                self.scada_operator_data = {}
+        else:
+            self.scada_operator_data = {}
+
+        # Load JJM phonebook
+        jjm_op_file = os.path.join(_BASE_DIR, "jjm_operator_notebook.json")
+        if os.path.exists(jjm_op_file):
+            try:
+                with open(jjm_op_file, "r") as f:
+                    self.jjm_operator_data = json.load(f)
+            except Exception:
+                self.jjm_operator_data = {}
+        else:
+            self.jjm_operator_data = {}
+
+        # Update active reference
+        mode = getattr(self, "op_mode", "scada")
+        self.operator_data = self.jjm_operator_data if mode == "jjm" else self.scada_operator_data
 
     def save_local_operators(self):
+        # Save SCADA phonebook
         op_file = os.path.join(_BASE_DIR, "operator_notebook.json")
         try:
             with open(op_file, "w") as f:
-                json.dump(self.operator_data, f, indent=2)
+                json.dump(self.scada_operator_data, f, indent=2)
         except Exception:
             pass
+
+        # Save JJM phonebook
+        jjm_op_file = os.path.join(_BASE_DIR, "jjm_operator_notebook.json")
+        try:
+            with open(jjm_op_file, "w") as f:
+                json.dump(self.jjm_operator_data, f, indent=2)
+        except Exception:
+            pass
+
+    def populate_from_separate_phonebook(self):
+        """Populates the operator data dictionary from operator_details.xlsx if available."""
+        try:
+            import os, time, pandas as pd
+            details_file = None
+            paths_to_try = [
+                os.path.join(os.path.dirname(_BASE_DIR), "operator_details.xlsx"),
+                os.path.join(_BASE_DIR, "operator_details.xlsx"),
+                r"c:\Users\19255\Desktop\projects2026\operator_details.xlsx"
+            ]
+            for path in paths_to_try:
+                if os.path.exists(path):
+                    details_file = path
+                    break
+                    
+            if not details_file:
+                return False
+                
+            self.safe_log_update(f"[SYS] Populating operator phonebook from {os.path.basename(details_file)}...")
+            df = pd.read_excel(details_file)
+            
+            operators = []
+            locations = []
+            
+            for idx, row in df.iterrows():
+                sno = str(row.iloc[0]).strip()
+                val1 = str(row.iloc[1]).strip()
+                val2 = str(row.iloc[2]).strip()
+                
+                is_operator = sno.isdigit() or (sno.replace('.','',1).isdigit() if '.' in sno else False)
+                
+                if is_operator:
+                    operators.append({'name': val1, 'phone': val2, 'row_idx': idx})
+                else:
+                    locations.append({'district': sno, 'block': val1, 'gp': val2, 'row_idx': idx})
+                    
+            gp_operators = {}
+            for op in operators:
+                loc = None
+                for l in locations:
+                    if l['row_idx'] > op['row_idx']:
+                        loc = l
+                        break
+                if loc:
+                    gp = loc['gp']
+                    block = loc['block']
+                    if gp not in gp_operators:
+                        gp_operators[gp] = {'block': block, 'ops': []}
+                    gp_operators[gp]['ops'].append(op)
+                    
+            if not hasattr(self, "jjm_operator_data") or self.jjm_operator_data is None:
+                self.jjm_operator_data = {}
+            for gp, info in gp_operators.items():
+                op_names = [o['name'] for o in info['ops'] if o['name'] and str(o['name']).lower() not in ('nan', 'none', '')]
+                phones = [o['phone'] for o in info['ops'] if o['phone'] and str(o['phone']).lower() not in ('nan', 'none', '')]
+                
+                self.jjm_operator_data[gp] = {
+                    "gp_name": gp,
+                    "block_name": info['block'],
+                    "operator_name": " / ".join(op_names) if op_names else "",
+                    "phone_number": " / ".join(phones) if phones else "",
+                    "last_updated": int(time.time()),
+                    "hwid": self._get_hwid()
+                }
+            self.save_local_operators()
+            self.safe_log_update(f"[SYS] Successfully loaded {len(self.jjm_operator_data)} JJM GP operator details from separate phonebook.")
+            return True
+        except Exception as e:
+            self.safe_log_update(f"[SYS] Failed to populate from separate phonebook: {e}")
+            return False
 
     def refresh_notebook_table(self):
         if not hasattr(self, 'notebook_tree') or not self.notebook_tree:
@@ -4038,16 +4326,6 @@ del "%~f0"
         self.op_phone_entry.insert(0, phone)
 
     def save_operator_details(self):
-        selected = self.notebook_tree.selection()
-        if not selected:
-            messagebox.showinfo("No Selection", "Please select a Gram Panchayat (GP) from the table to save operator details.")
-            return
-            
-        values = self.notebook_tree.item(selected[0], "values")
-        original_gp_name = getattr(self, "op_original_gp_name", "")
-        if not original_gp_name:
-            original_gp_name = values[1]
-            
         gp_name = self.op_gp_entry.get().strip()
         if not gp_name:
             messagebox.showerror("Error", "GP Name cannot be empty.")
@@ -4057,14 +4335,25 @@ del "%~f0"
         op_name = self.op_name_entry.get().strip()
         phone = self.op_phone_entry.get().strip()
         
+        original_gp_name = getattr(self, "op_original_gp_name", "")
+        if not original_gp_name:
+            selected = self.notebook_tree.selection()
+            if selected:
+                values = self.notebook_tree.item(selected[0], "values")
+                original_gp_name = values[1]
+            else:
+                original_gp_name = gp_name
+            
         now = int(time.time())
+        mode = getattr(self, "op_mode", "scada")
+        active_data = self.scada_operator_data if mode == "scada" else self.jjm_operator_data
         
         # If GP was renamed
         if original_gp_name and original_gp_name != gp_name:
-            self.operator_data.pop(original_gp_name, None)
-            threading.Thread(target=self.delete_operator_on_server, args=(original_gp_name,), daemon=True).start()
+            active_data.pop(original_gp_name, None)
+            threading.Thread(target=self.delete_operator_on_server, args=(original_gp_name, mode), daemon=True).start()
             
-        self.operator_data[gp_name] = {
+        active_data[gp_name] = {
             "gp_name": gp_name,
             "block_name": block_name,
             "operator_name": op_name,
@@ -4082,24 +4371,120 @@ del "%~f0"
         self.refresh_notebook_table()
         
         # Sync with backend in a separate thread
-        threading.Thread(target=self.sync_operator_with_server, args=(gp_name, op_name, phone, block_name, now), daemon=True).start()
+        threading.Thread(target=self.sync_operator_with_server, args=(gp_name, op_name, phone, block_name, now, mode), daemon=True).start()
         
         self.op_original_gp_name = gp_name
         self.op_selected_gp_lbl.configure(text=f"Selected: {gp_name}")
 
-    def delete_operator_on_server(self, gp_name):
+    def delete_operator_record(self):
+        selected = self.notebook_tree.selection()
+        gp_name = ""
+        if selected:
+            values = self.notebook_tree.item(selected[0], "values")
+            gp_name = values[1]
+        else:
+            gp_name = self.op_gp_entry.get().strip()
+            
+        mode = getattr(self, "op_mode", "scada")
+        active_data = self.scada_operator_data if mode == "scada" else self.jjm_operator_data
+        
+        if not gp_name or gp_name not in active_data:
+            messagebox.showinfo("No Record", "Please select a saved operator record to delete.")
+            return
+            
+        if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete the operator record for GP '{gp_name}'?"):
+            active_data.pop(gp_name, None)
+            self.save_local_operators()
+            
+            # Delete on server
+            threading.Thread(target=self.delete_operator_on_server, args=(gp_name, mode), daemon=True).start()
+            
+            # Clear fields
+            self.op_original_gp_name = ""
+            self.op_selected_gp_lbl.configure(text="No GP Selected")
+            self.op_gp_entry.delete(0, tk.END)
+            self.op_block_entry.delete(0, tk.END)
+            self.op_name_entry.delete(0, tk.END)
+            self.op_phone_entry.delete(0, tk.END)
+            
+            self.refresh_notebook_table()
+
+    def delete_operator_on_server(self, gp_name, mode=None):
+        if mode is None:
+            mode = getattr(self, "op_mode", "scada")
+            
+        delete_gp_name = gp_name
+        if mode == "jjm":
+            if not delete_gp_name.endswith(" [JJM]"):
+                delete_gp_name += " [JJM]"
+        else:
+            if delete_gp_name.endswith(" [JJM]"):
+                delete_gp_name = delete_gp_name[:-6]
+                
         hwid = self._get_hwid()
         url = "http://devash.in/api/delete_operator"
         payload = {
-            "gp_name": gp_name,
+            "gp_name": delete_gp_name,
             "hwid": hwid
         }
         try:
             r = requests.post(url, json=payload, timeout=10)
             if r.status_code == 200:
-                self.safe_log_update(f"🗑️ [SYNC] Deleted renamed/removed GP '{gp_name}' from server.")
+                self.safe_log_update(f"🗑️ [SYNC] Deleted renamed/removed GP '{gp_name}' ({mode.upper()}) from server.")
         except Exception as e:
-            self.safe_log_update(f"⚠️ [SYNC] Failed to delete GP '{gp_name}' on server: {e}")
+            self.safe_log_update(f"⚠️ [SYNC] Failed to delete GP '{gp_name}' ({mode.upper()}) on server: {e}")
+
+    def redirect_to_operator_details(self, gp_name, popup_window=None):
+        if popup_window:
+            try:
+                popup_window.destroy()
+            except Exception:
+                pass
+        
+        self.main_tabs.set("📞 OPERATOR NOTEBOOK")
+        
+        if not hasattr(self, "scada_operator_data") or self.scada_operator_data is None:
+            self.scada_operator_data = {}
+        if not hasattr(self, "jjm_operator_data") or self.jjm_operator_data is None:
+            self.jjm_operator_data = {}
+            
+        # Determine the mode automatically based on where the GP exists
+        target_gp = gp_name
+        if gp_name.endswith(" [JJM]"):
+            target_gp = gp_name[:-6]
+            self.switch_phonebook_mode("jjm")
+        elif gp_name in self.jjm_operator_data:
+            self.switch_phonebook_mode("jjm")
+        elif gp_name in self.scada_operator_data:
+            self.switch_phonebook_mode("scada")
+        else:
+            # Fallback to JJM if in discovered_jjm_names
+            if hasattr(self, "discovered_jjm_names") and gp_name in self.discovered_jjm_names:
+                self.switch_phonebook_mode("jjm")
+            else:
+                self.switch_phonebook_mode("scada")
+                
+        self.op_search_var.set(target_gp)
+        
+        self.op_original_gp_name = target_gp
+        self.op_selected_gp_lbl.configure(text=f"Selected: {target_gp}")
+        self.op_gp_entry.delete(0, tk.END)
+        self.op_gp_entry.insert(0, target_gp)
+        
+        active_data = self.scada_operator_data if self.op_mode == "scada" else self.jjm_operator_data
+        if target_gp in active_data:
+            entry = active_data[target_gp]
+            self.op_block_entry.delete(0, tk.END)
+            self.op_block_entry.insert(0, entry.get("block_name", ""))
+            self.op_name_entry.delete(0, tk.END)
+            self.op_name_entry.insert(0, entry.get("operator_name", ""))
+            self.op_phone_entry.delete(0, tk.END)
+            self.op_phone_entry.insert(0, entry.get("phone_number", ""))
+            self.after(100, lambda: self._select_gp_in_notebook(target_gp))
+        else:
+            self.op_block_entry.delete(0, tk.END)
+            self.op_name_entry.delete(0, tk.END)
+            self.op_phone_entry.delete(0, tk.END)
 
     def show_context_menu(self, event, tree_widget, source_type, popup_window=None):
         item_id = tree_widget.identify_row(event.y)
@@ -4139,6 +4524,10 @@ del "%~f0"
         menu.add_command(label="📞 View Operator Details", command=lambda: self.redirect_to_operator_details(gp_name, popup_window))
         menu.add_command(label="📂 View Scheme History", command=lambda: self.redirect_to_scheme_history(gp_name, popup_window))
         
+        if source_type == "notebook":
+            menu.add_separator()
+            menu.add_command(label="❌ Delete Record", command=self.delete_operator_record)
+            
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -4148,33 +4537,6 @@ del "%~f0"
         self.clipboard_clear()
         self.clipboard_append(gp_name)
         self.safe_log_update(f"[SYS] Scheme name '{gp_name}' copied to clipboard.")
-        
-    def redirect_to_operator_details(self, gp_name, popup_window=None):
-        if popup_window:
-            try:
-                popup_window.destroy()
-            except Exception:
-                pass
-        
-        self.main_tabs.set("\U0001f4de OPERATOR NOTEBOOK")
-        
-        if not hasattr(self, "operator_data") or self.operator_data is None:
-            self.operator_data = {}
-            
-        if gp_name not in self.operator_data:
-            self.operator_data[gp_name] = {
-                "gp_name": gp_name,
-                "block_name": "",
-                "operator_name": "",
-                "phone_number": "",
-                "last_updated": 0,
-                "hwid": ""
-            }
-            self.save_local_operators()
-            
-        self.op_search_var.set(gp_name)
-        
-        self.after(100, lambda: self._select_gp_in_notebook(gp_name))
         
     def _select_gp_in_notebook(self, gp_name):
         children = self.notebook_tree.get_children()
@@ -4409,12 +4771,23 @@ del "%~f0"
         except Exception as e:
             print("Failed to generate fallback logo:", e)
 
-    def sync_operator_with_server(self, gp_name, op_name, phone, block_name, timestamp):
+    def sync_operator_with_server(self, gp_name, op_name, phone, block_name, timestamp, mode=None):
+        if mode is None:
+            mode = getattr(self, "op_mode", "scada")
+            
+        sync_gp_name = gp_name
+        if mode == "jjm":
+            if not sync_gp_name.endswith(" [JJM]"):
+                sync_gp_name += " [JJM]"
+        else:
+            if sync_gp_name.endswith(" [JJM]"):
+                sync_gp_name = sync_gp_name[:-6]
+                
         hwid = self._get_hwid()
         url = "http://devash.in/api/sync_operators"
         payload = {
             "entries": [{
-                "gp_name": gp_name,
+                "gp_name": sync_gp_name,
                 "operator_name": op_name,
                 "phone_number": phone,
                 "block_name": block_name,
@@ -4426,7 +4799,7 @@ del "%~f0"
         try:
             r = requests.post(url, json=payload, timeout=10)
             if r.status_code == 200:
-                self.safe_log_update(f"☁️ [SYNC] Operator details for {gp_name} backed up to server.")
+                self.safe_log_update(f"☁️ [SYNC] Operator details for {gp_name} ({mode.upper()}) backed up to server.")
         except Exception as e:
             self.safe_log_update(f"⚠️ [SYNC] Failed to backup operator to cloud: {e}")
 
@@ -4443,23 +4816,46 @@ del "%~f0"
                         self.safe_log_update("[SYS] Server phone book is empty.")
                         return
                     
-                    if not hasattr(self, "operator_data") or self.operator_data is None:
-                        self.operator_data = {}
+                    if not hasattr(self, "scada_operator_data") or self.scada_operator_data is None:
+                        self.scada_operator_data = {}
+                    if not hasattr(self, "jjm_operator_data") or self.jjm_operator_data is None:
+                        self.jjm_operator_data = {}
+                    
+                    scada_count = 0
+                    jjm_count = 0
                     
                     for entry in entries:
                         gp = entry.get("gp_name")
                         if gp:
-                            self.operator_data[gp] = {
-                                "gp_name": gp,
-                                "block_name": entry.get("block_name", ""),
-                                "operator_name": entry.get("operator_name", ""),
-                                "phone_number": entry.get("phone_number", ""),
-                                "last_updated": entry.get("last_updated", 0),
-                                "hwid": entry.get("hwid", "")
-                            }
+                            if gp.endswith(" [JJM]"):
+                                clean_gp = gp[:-6]
+                                self.jjm_operator_data[clean_gp] = {
+                                    "gp_name": clean_gp,
+                                    "block_name": entry.get("block_name", ""),
+                                    "operator_name": entry.get("operator_name", ""),
+                                    "phone_number": entry.get("phone_number", ""),
+                                    "last_updated": entry.get("last_updated", 0),
+                                    "hwid": entry.get("hwid", "")
+                                }
+                                jjm_count += 1
+                            else:
+                                self.scada_operator_data[gp] = {
+                                    "gp_name": gp,
+                                    "block_name": entry.get("block_name", ""),
+                                    "operator_name": entry.get("operator_name", ""),
+                                    "phone_number": entry.get("phone_number", ""),
+                                    "last_updated": entry.get("last_updated", 0),
+                                    "hwid": entry.get("hwid", "")
+                                }
+                                scada_count += 1
+                    
                     self.save_local_operators()
+                    # Make sure self.operator_data points to correct active dictionary
+                    mode = getattr(self, "op_mode", "scada")
+                    self.operator_data = self.jjm_operator_data if mode == "jjm" else self.scada_operator_data
+                    
                     self.after(0, self.refresh_notebook_table)
-                    self.safe_log_update(f"☁️ [SYNC] Successfully downloaded {len(entries)} operator contacts from server.")
+                    self.safe_log_update(f"☁️ [SYNC] Successfully downloaded {scada_count} SCADA and {jjm_count} JJM operator contacts from server.")
                 else:
                     self.safe_log_update(f"⚠️ [ERR] Download failed: Server returned status {r.status_code}")
             except Exception as e:
@@ -4468,15 +4864,22 @@ del "%~f0"
 
     def upload_entire_phonebook(self):
         def task():
-            if not hasattr(self, "operator_data") or not self.operator_data:
-                self.safe_log_update("[SYS] Phone book is empty. Nothing to upload.")
+            mode = getattr(self, "op_mode", "scada")
+            active_data = self.scada_operator_data if mode == "scada" else self.jjm_operator_data
+            
+            if not active_data:
+                self.safe_log_update(f"[SYS] {mode.upper()} Phone book is empty. Nothing to upload.")
                 return
+                
             url = "http://devash.in/api/sync_operators"
             hwid = self._get_hwid()
             entries_list = []
-            for gp, entry in self.operator_data.items():
+            for gp, entry in active_data.items():
+                sync_gp = gp
+                if mode == "jjm" and not sync_gp.endswith(" [JJM]"):
+                    sync_gp += " [JJM]"
                 entries_list.append({
-                    "gp_name": gp,
+                    "gp_name": sync_gp,
                     "operator_name": entry.get("operator_name", ""),
                     "phone_number": entry.get("phone_number", ""),
                     "block_name": entry.get("block_name", ""),
@@ -4488,10 +4891,10 @@ del "%~f0"
                 "hwid": hwid
             }
             try:
-                self.safe_log_update(f"[SYS] Uploading {len(entries_list)} contact entries to server...")
+                self.safe_log_update(f"[SYS] Uploading {len(entries_list)} {mode.upper()} contact entries to server...")
                 r = requests.post(url, json=payload, timeout=20)
                 if r.status_code == 200:
-                    self.safe_log_update(f"☁️ [SYNC] Successfully uploaded/synced {len(entries_list)} contacts to server.")
+                    self.safe_log_update(f"☁️ [SYNC] Successfully uploaded/synced {len(entries_list)} {mode.upper()} contacts to server.")
                 else:
                     self.safe_log_update(f"⚠️ [ERR] Upload failed: Server returned status {r.status_code}")
             except Exception as e:
@@ -4506,23 +4909,49 @@ del "%~f0"
                 data = r.json()
                 entries = data.get("entries", [])
                 merged = False
+                
+                if not hasattr(self, "scada_operator_data") or self.scada_operator_data is None:
+                    self.scada_operator_data = {}
+                if not hasattr(self, "jjm_operator_data") or self.jjm_operator_data is None:
+                    self.jjm_operator_data = {}
+                    
                 for entry in entries:
                     gp = entry.get("gp_name")
-                    last_up = entry.get("last_updated", 0)
-                    local_entry = self.operator_data.get(gp, {})
-                    local_last_up = local_entry.get("last_updated", 0)
-                    if last_up > local_last_up:
-                        self.operator_data[gp] = {
-                            "gp_name": gp,
-                            "block_name": entry.get("block_name", ""),
-                            "operator_name": entry.get("operator_name", ""),
-                            "phone_number": entry.get("phone_number", ""),
-                            "last_updated": last_up,
-                            "hwid": entry.get("hwid", "")
-                        }
-                        merged = True
+                    if gp:
+                        last_up = entry.get("last_updated", 0)
+                        if gp.endswith(" [JJM]"):
+                            clean_gp = gp[:-6]
+                            local_entry = self.jjm_operator_data.get(clean_gp, {})
+                            local_last_up = local_entry.get("last_updated", 0)
+                            if last_up > local_last_up:
+                                self.jjm_operator_data[clean_gp] = {
+                                    "gp_name": clean_gp,
+                                    "block_name": entry.get("block_name", ""),
+                                    "operator_name": entry.get("operator_name", ""),
+                                    "phone_number": entry.get("phone_number", ""),
+                                    "last_updated": last_up,
+                                    "hwid": entry.get("hwid", "")
+                                }
+                                merged = True
+                        else:
+                            local_entry = self.scada_operator_data.get(gp, {})
+                            local_last_up = local_entry.get("last_updated", 0)
+                            if last_up > local_last_up:
+                                self.scada_operator_data[gp] = {
+                                    "gp_name": gp,
+                                    "block_name": entry.get("block_name", ""),
+                                    "operator_name": entry.get("operator_name", ""),
+                                    "phone_number": entry.get("phone_number", ""),
+                                    "last_updated": last_up,
+                                    "hwid": entry.get("hwid", "")
+                                }
+                                merged = True
                 if merged:
                     self.save_local_operators()
+                    # Make sure self.operator_data points to correct active dictionary
+                    mode = getattr(self, "op_mode", "scada")
+                    self.operator_data = self.jjm_operator_data if mode == "jjm" else self.scada_operator_data
+                    
                     self.after(0, self.refresh_notebook_table)
                     self.safe_log_update("☁️ [SYNC] Synchronized Operator Notebook with cloud database.")
         except Exception as e:
@@ -5605,6 +6034,8 @@ del "%~f0"
         for r in hourly_records:
             tree.insert("", "end", values=(r["Time"], r["Flow Rate"], r["Pump Status"], r["Pressure"], r["Water Level"]))
             
+        tree.bind("<Button-3>", lambda event, p=popup: self.show_context_menu(event, tree, "popup", p))
+        tree.bind("<Button-2>", lambda event, p=popup: self.show_context_menu(event, tree, "popup", p))
         # Left Panel Charts Setup
         ctk.CTkLabel(charts_panel, text="📈 Parameter Trends (Normalized)", font=("Segoe UI", 12, "bold"), text_color=CLR_CYAN).pack(anchor="w", padx=15, pady=(12, 2))
         
