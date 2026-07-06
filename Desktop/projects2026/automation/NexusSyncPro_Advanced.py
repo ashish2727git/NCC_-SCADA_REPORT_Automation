@@ -50,7 +50,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "17.1"
+CLIENT_VERSION = "17.2"
 
 # ── SELF-HEALING FILENAME UPDATE ──
 try:
@@ -1147,6 +1147,21 @@ class NexusSyncPro(ctk.CTk):
         app_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
         if not app_path.endswith(".exe"):
             return # Skip if not compiled
+
+        # 0. Create Desktop shortcut
+        try:
+            import win32com.client
+            shell = win32com.client.Dispatch("WScript.Shell")
+            desktop = shell.SpecialFolders("Desktop")
+            shortcut_path = os.path.join(desktop, "Ashish Kumar NexusSyncPro.lnk")
+            shortcut = shell.CreateShortCut(shortcut_path)
+            shortcut.TargetPath = app_path
+            shortcut.WorkingDirectory = os.path.dirname(app_path)
+            shortcut.IconLocation = app_path
+            shortcut.save()
+            self.safe_log_update("[SYS] Created/updated Desktop shortcut.")
+        except Exception as e_lnk:
+            self.safe_log_update(f"[SYS] ⚠️ Desktop shortcut creation fail: {str(e_lnk)}")
 
         # 1. Windows startup registry (for boot)
         try:
@@ -2608,13 +2623,13 @@ del "%~f0"
             
         popup = ctk.CTkToplevel(self)
         popup.title(title)
-        popup.geometry("720x600")
+        popup.geometry("900x600")
         popup.attributes("-topmost", True)
         popup.configure(fg_color="#0f172a")
         
         # Center the popup relative to main window
         popup.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() // 2) - (720 // 2)
+        x = self.winfo_x() + (self.winfo_width() // 2) - (900 // 2)
         y = self.winfo_y() + (self.winfo_height() // 2) - (600 // 2)
         popup.geometry(f"+{x}+{y}")
         
@@ -2655,8 +2670,38 @@ del "%~f0"
         table_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
         
         # Columns definition
-        cols = ("sr_no", "name", "timestamp")
+        cols = ("sr_no", "scheme_id", "name", "block_name", "timestamp")
         tree = ttk.Treeview(table_frame, columns=cols, show="headings", style="Nexus.Treeview")
+        
+        # Load local Scheme Name ➔ (OHT Code, Block Name) map from 779 GP.xlsx
+        rws_info_map = {}
+        try:
+            import pandas as pd
+            gp_file = r"c:\Users\19255\Desktop\projects2026\automation\779 GP.xlsx"
+            if os.path.exists(gp_file):
+                df_gp = pd.read_excel(gp_file, header=3)
+                if pd.isna(df_gp.iloc[0]['Scheme Name']) and (pd.isna(df_gp.iloc[0]['Agency']) or str(df_gp.iloc[0]['Agency']).strip() == '1'):
+                    df_gp = df_gp.iloc[1:].reset_index(drop=True)
+                for idx, row in df_gp.iterrows():
+                    s_name = str(row['Scheme Name']).strip().lower()
+                    s_id = row['OHT Code / Scheme ID']
+                    block = str(row['Block Name']).strip()
+                    if s_name and s_name != 'nan':
+                        rws_info_map[s_name] = {
+                            'id': "" if pd.isna(s_id) else str(int(float(s_id))),
+                            'block': "" if pd.isna(block) or block.lower() == 'nan' else block
+                        }
+        except Exception as e_map:
+            print("Failed to load 779 GP mapping:", e_map)
+            
+        def clean_key(txt):
+            t = str(txt).lower().strip()
+            for word in ["water supply scheme", "water supply", "scheme", "jjm", "supply", "w/s", "ws", "wtater"]:
+                t = t.replace(word, "")
+            t = "".join(c for c in t if c.isalnum() or c.isspace())
+            return " ".join(t.split())
+            
+        rws_clean_map = {clean_key(k): v for k, v in rws_info_map.items()}
         
         # Define sorting logic
         def sort_column(col, reverse):
@@ -2688,13 +2733,17 @@ del "%~f0"
 
         # Define headings
         tree.heading("sr_no", text="Sr. No.", command=lambda: sort_column("sr_no", False))
+        tree.heading("scheme_id", text="OHT Code / Scheme ID", command=lambda: sort_column("scheme_id", False))
         tree.heading("name", text="Scheme / Gram Panchayat Name", command=lambda: sort_column("name", False))
+        tree.heading("block_name", text="Block Name", command=lambda: sort_column("block_name", False))
         tree.heading("timestamp", text="Last Data Receive Date", command=lambda: sort_column("timestamp", False))
         
         # Define columns layout
         tree.column("sr_no", width=60, minwidth=60, anchor="center")
-        tree.column("name", width=420, minwidth=300, anchor="w")
-        tree.column("timestamp", width=200, minwidth=150, anchor="w")
+        tree.column("scheme_id", width=140, minwidth=100, anchor="center")
+        tree.column("name", width=340, minwidth=240, anchor="w")
+        tree.column("block_name", width=140, minwidth=100, anchor="w")
+        tree.column("timestamp", width=200, minwidth=140, anchor="w")
         
         # Scrollbars
         v_scrollbar = ctk.CTkScrollbar(table_frame, orientation="vertical", command=tree.yview)
@@ -2725,7 +2774,22 @@ del "%~f0"
                 if not time_str or time_str == "N/A":
                     time_str = "No recent data"
                     
-                tree.insert("", "end", values=(idx, name_str, time_str))
+                # Look up ID and Block from local maps or fetched data
+                id_str = ""
+                if hasattr(self, "jjm_gp_ids") and name_str in self.jjm_gp_ids:
+                    id_str = self.jjm_gp_ids[name_str]
+                
+                block_str = ""
+                info = rws_info_map.get(name_str.lower())
+                if not info:
+                    info = rws_clean_map.get(clean_key(name_str))
+                
+                if info:
+                    if not id_str:
+                        id_str = info['id']
+                    block_str = info['block']
+                    
+                tree.insert("", "end", values=(idx, id_str, name_str, block_str, time_str))
                 
             header_lbl.configure(text=f"{title} (Filtered: {len(filtered)} / Total: {len(items)})")
 
@@ -2740,10 +2804,10 @@ del "%~f0"
         btn_frame.pack(fill="x", padx=15, pady=(0, 15))
         
         def copy_data():
-            lines = ["Sr. No.\tScheme / Gram Panchayat Name\tLast Data Receive Date"]
+            lines = ["Sr. No.\tOHT Code / Scheme ID\tScheme / Gram Panchayat Name\tBlock Name\tLast Data Receive Date"]
             for k in tree.get_children(""):
                 vals = tree.item(k, "values")
-                lines.append(f"{vals[0]}\t{vals[1]}\t{vals[2]}")
+                lines.append(f"{vals[0]}\t{vals[1]}\t{vals[2]}\t{vals[3]}\t{vals[4]}")
             data_str = "\n".join(lines)
             popup.clipboard_clear()
             popup.clipboard_append(data_str)
@@ -2762,7 +2826,7 @@ del "%~f0"
                     import csv
                     with open(filepath, "w", newline="", encoding="utf-8") as f:
                         writer = csv.writer(f)
-                        writer.writerow(["Sr. No.", "Scheme / Gram Panchayat Name", "Last Data Receive Date"])
+                        writer.writerow(["Sr. No.", "OHT Code / Scheme ID", "Scheme / Gram Panchayat Name", "Block Name", "Last Data Receive Date"])
                         for k in tree.get_children(""):
                             writer.writerow(tree.item(k, "values"))
                     messagebox.showinfo("Success", f"Data exported successfully to:\n{filepath}", parent=popup)
@@ -2906,8 +2970,12 @@ del "%~f0"
                                                 if len(c_) > 9 and c_[0].isdigit():
                                                     name = c_[6]
                                                     last_date = c_[9]
+                                                    scheme_id = c_[5]
                                                     names.append(name)
                                                     self.jjm_gp_times[name] = last_date
+                                                    if not hasattr(self, "jjm_gp_ids"):
+                                                        self.jjm_gp_ids = {}
+                                                    self.jjm_gp_ids[name] = scheme_id
                                             return sorted(names)
                                 except Exception:
                                     pass
