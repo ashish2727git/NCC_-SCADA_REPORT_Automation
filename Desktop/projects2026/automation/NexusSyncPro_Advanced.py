@@ -50,7 +50,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "17.2"
+CLIENT_VERSION = "17.4"
 
 # ── SELF-HEALING FILENAME UPDATE ──
 try:
@@ -4152,30 +4152,6 @@ del "%~f0"
     # ──────────────────────────────────────────────────────────────────────────
     def init_notebook_tab(self):
         """Initialize Gram Panchayat (GP) Pump Operator Notebook tab."""
-        # ── Phonebook Module Switcher (SCADA vs JJM) ──
-        selector_frame = ctk.CTkFrame(self.tab_notebook, fg_color="transparent")
-        selector_frame.pack(fill="x", padx=15, pady=(15, 0))
-        
-        self.scada_pb_btn = ctk.CTkButton(
-            selector_frame, 
-            text="📞 SCADA Phonebook", 
-            font=("Segoe UI", 12, "bold"),
-            height=38,
-            width=180,
-            command=lambda: self.switch_phonebook_mode("scada")
-        )
-        self.scada_pb_btn.pack(side="left", padx=(0, 10))
-        
-        self.jjm_pb_btn = ctk.CTkButton(
-            selector_frame, 
-            text="📞 JJM Phonebook", 
-            font=("Segoe UI", 12, "bold"),
-            height=38,
-            width=180,
-            command=lambda: self.switch_phonebook_mode("jjm")
-        )
-        self.jjm_pb_btn.pack(side="left")
-
         top_frame = ctk.CTkFrame(self.tab_notebook, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER)
         top_frame.pack(fill="x", padx=15, pady=15)
         
@@ -4284,28 +4260,19 @@ del "%~f0"
         # Load local phone book cache
         self.scada_operator_data = {}
         self.jjm_operator_data = {}
-        self.op_mode = "scada"
-        self.operator_data = self.scada_operator_data
+        self.op_mode = "jjm"
+        self.operator_data = self.jjm_operator_data
         
         self.load_local_operators()
-        self.switch_phonebook_mode("scada")
+        self.switch_phonebook_mode("jjm")
         
         # Fetch latest operators from Control Tower in background
         threading.Thread(target=self.fetch_operators_from_server, daemon=True).start()
 
     def switch_phonebook_mode(self, mode):
-        self.op_mode = mode
-        if mode == "scada":
-            self.operator_data = self.scada_operator_data
-            self.scada_pb_btn.configure(fg_color=CLR_CYAN, text_color="#ffffff", border_width=0)
-            self.jjm_pb_btn.configure(fg_color=CLR_CARD, text_color=CLR_TEXT, border_width=1, border_color=CLR_BORDER)
-            self.safe_log_update("[SYS] Switched to SCADA Phonebook module.")
-        else:
-            self.operator_data = self.jjm_operator_data
-            self.scada_pb_btn.configure(fg_color=CLR_CARD, text_color=CLR_TEXT, border_width=1, border_color=CLR_BORDER)
-            self.jjm_pb_btn.configure(fg_color=CLR_CYAN, text_color="#ffffff", border_width=0)
-            self.safe_log_update("[SYS] Switched to JJM Phonebook module.")
-            
+        self.op_mode = "jjm"
+        self.operator_data = self.jjm_operator_data
+        
         # Clear editing/search details
         self.op_search_var.set("")
         self.op_original_gp_name = ""
@@ -4616,22 +4583,11 @@ del "%~f0"
         if not hasattr(self, "jjm_operator_data") or self.jjm_operator_data is None:
             self.jjm_operator_data = {}
             
-        # Determine the mode automatically based on where the GP exists
         target_gp = gp_name
         if gp_name.endswith(" [JJM]"):
             target_gp = gp_name[:-6]
-            self.switch_phonebook_mode("jjm")
-        elif gp_name in self.jjm_operator_data:
-            self.switch_phonebook_mode("jjm")
-        elif gp_name in self.scada_operator_data:
-            self.switch_phonebook_mode("scada")
-        else:
-            # Fallback to JJM if in discovered_jjm_names
-            if hasattr(self, "discovered_jjm_names") and gp_name in self.discovered_jjm_names:
-                self.switch_phonebook_mode("jjm")
-            else:
-                self.switch_phonebook_mode("scada")
-                
+            
+        self.switch_phonebook_mode("jjm")
         self.op_search_var.set(target_gp)
         
         self.op_original_gp_name = target_gp
@@ -4639,7 +4595,7 @@ del "%~f0"
         self.op_gp_entry.delete(0, tk.END)
         self.op_gp_entry.insert(0, target_gp)
         
-        active_data = self.scada_operator_data if self.op_mode == "scada" else self.jjm_operator_data
+        active_data = self.jjm_operator_data
         if target_gp in active_data:
             entry = active_data[target_gp]
             self.op_block_entry.delete(0, tk.END)
