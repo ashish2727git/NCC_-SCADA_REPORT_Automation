@@ -2636,10 +2636,16 @@ del "%~f0"
         header_lbl = ctk.CTkLabel(popup, text=f"{title} (Count: {len(items)})", font=("Segoe UI", 14, "bold"), text_color=CLR_CYAN)
         header_lbl.pack(pady=(15, 5))
         
+        # Control Frame (Search + Toggle Switch)
+        control_frame = ctk.CTkFrame(popup, fg_color="transparent")
+        control_frame.pack(fill="x", padx=15, pady=(0, 10))
+        
         # Search Box
         search_var = tk.StringVar()
-        search_entry = ctk.CTkEntry(popup, placeholder_text="🔍 Search schemes...", height=35, fg_color="#f3f4f6", border_color=CLR_BORDER, text_color=CLR_TEXT, placeholder_text_color="#64748b", textvariable=search_var)
-        search_entry.pack(fill="x", padx=15, pady=(0, 10))
+        search_entry = ctk.CTkEntry(control_frame, placeholder_text="🔍 Search schemes...", height=35, fg_color="#f3f4f6", border_color=CLR_BORDER, text_color=CLR_TEXT, placeholder_text_color="#64748b", textvariable=search_var)
+        search_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        
+        show_op_var = tk.BooleanVar(value=False)
         
         # Style configuration for a premium, Excel-like dark table
         import tkinter.ttk as ttk
@@ -2673,10 +2679,11 @@ del "%~f0"
         cols = ("sr_no", "scheme_id", "name", "block_name", "timestamp")
         tree = ttk.Treeview(table_frame, columns=cols, show="headings", style="Nexus.Treeview")
         
-        # Load local Scheme Name ➔ (OHT Code, Block Name) map from 779 GP.xlsx
+        # Load local Scheme Name ➔ (OHT Code, Block Name) map from 779 GP.xlsx & sheet.xlsx
         rws_info_map = {}
         try:
             import pandas as pd
+            # 1. 779 GP.xlsx
             gp_file = r"c:\Users\19255\Desktop\projects2026\automation\779 GP.xlsx"
             if os.path.exists(gp_file):
                 df_gp = pd.read_excel(gp_file, header=3)
@@ -2693,6 +2700,32 @@ del "%~f0"
                         }
         except Exception as e_map:
             print("Failed to load 779 GP mapping:", e_map)
+            
+        try:
+            # 2. sheet.xlsx
+            sheet_file = r"c:\Users\19255\Desktop\projects2026\automation\sheet.xlsx"
+            if os.path.exists(sheet_file):
+                df_sheet = pd.read_excel(sheet_file)
+                for idx, row in df_sheet.iterrows():
+                    s_name = str(row['Gram Panchayat']).strip().lower()
+                    s_id = row['Scheme Id']
+                    block = str(row['Block']).strip()
+                    if s_name and s_name != 'nan':
+                        clean_id = ""
+                        if not pd.isna(s_id):
+                            try:
+                                clean_id = str(int(float(s_id)))
+                            except ValueError:
+                                clean_id = str(s_id)
+                        if s_name not in rws_info_map:
+                            rws_info_map[s_name] = {'id': clean_id, 'block': block}
+                        else:
+                            if not rws_info_map[s_name]['id']:
+                                rws_info_map[s_name]['id'] = clean_id
+                            if not rws_info_map[s_name]['block']:
+                                rws_info_map[s_name]['block'] = block
+        except Exception as e_sheet:
+            print("Failed to load sheet.xlsx mapping:", e_sheet)
             
         def clean_key(txt):
             t = str(txt).lower().strip()
@@ -2745,12 +2778,17 @@ del "%~f0"
         tree.column("block_name", width=140, minwidth=100, anchor="w")
         tree.column("timestamp", width=200, minwidth=140, anchor="w")
         
-        # Scrollbars
-        v_scrollbar = ctk.CTkScrollbar(table_frame, orientation="vertical", command=tree.yview)
-        tree.configure(yscrollcommand=v_scrollbar.set)
+        # Scrollbars (Vertical & Horizontal Grid Layout)
+        table_frame.rowconfigure(0, weight=1)
+        table_frame.columnconfigure(0, weight=1)
         
-        tree.pack(side="left", fill="both", expand=True)
-        v_scrollbar.pack(side="right", fill="y")
+        v_scrollbar = ctk.CTkScrollbar(table_frame, orientation="vertical", command=tree.yview)
+        h_scrollbar = ctk.CTkScrollbar(table_frame, orientation="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        
+        tree.grid(row=0, column=0, sticky="nsew")
+        v_scrollbar.grid(row=0, column=1, sticky="ns")
+        h_scrollbar.grid(row=1, column=0, sticky="ew")
         
         tree.bind("<Button-3>", lambda event, p=popup: self.show_context_menu(event, tree, "popup", p))
         tree.bind("<Button-2>", lambda event, p=popup: self.show_context_menu(event, tree, "popup", p))
@@ -2789,9 +2827,63 @@ del "%~f0"
                         id_str = info['id']
                     block_str = info['block']
                     
-                tree.insert("", "end", values=(idx, id_str, name_str, block_str, time_str))
+                if show_op_var.get():
+                    op_name = ""
+                    op_phone = ""
+                    clean_gp = clean_key(name_str)
+                    
+                    if hasattr(self, "jjm_operator_data") and self.jjm_operator_data:
+                        if name_str in self.jjm_operator_data:
+                            op_name = self.jjm_operator_data[name_str].get("operator_name", "")
+                            op_phone = self.jjm_operator_data[name_str].get("phone_number", "")
+                        else:
+                            for gp_key, o_info in self.jjm_operator_data.items():
+                                if gp_key.lower().strip() == name_str.lower().strip() or clean_key(gp_key) == clean_gp:
+                                    op_name = o_info.get("operator_name", "")
+                                    op_phone = o_info.get("phone_number", "")
+                                    break
+                    tree.insert("", "end", values=(idx, id_str, name_str, block_str, op_name, op_phone, time_str))
+                else:
+                    tree.insert("", "end", values=(idx, id_str, name_str, block_str, time_str))
                 
             header_lbl.configure(text=f"{title} (Filtered: {len(filtered)} / Total: {len(items)})")
+
+        def on_toggle_op():
+            if show_op_var.get():
+                tree.configure(columns=("sr_no", "scheme_id", "name", "block_name", "operator_name", "operator_phone", "timestamp"))
+                tree.heading("sr_no", text="Sr. No.", command=lambda: sort_column("sr_no", False))
+                tree.heading("scheme_id", text="OHT Code / Scheme ID", command=lambda: sort_column("scheme_id", False))
+                tree.heading("name", text="Scheme / Gram Panchayat Name", command=lambda: sort_column("name", False))
+                tree.heading("block_name", text="Block Name", command=lambda: sort_column("block_name", False))
+                tree.heading("operator_name", text="Operator Name", command=lambda: sort_column("operator_name", False))
+                tree.heading("operator_phone", text="Operator Phone", command=lambda: sort_column("operator_phone", False))
+                tree.heading("timestamp", text="Last Data Receive Date", command=lambda: sort_column("timestamp", False))
+                
+                tree.column("sr_no", width=50, minwidth=50, anchor="center")
+                tree.column("scheme_id", width=120, minwidth=90, anchor="center")
+                tree.column("name", width=220, minwidth=180, anchor="w")
+                tree.column("block_name", width=110, minwidth=80, anchor="w")
+                tree.column("operator_name", width=120, minwidth=100, anchor="w")
+                tree.column("operator_phone", width=110, minwidth=90, anchor="w")
+                tree.column("timestamp", width=150, minwidth=110, anchor="w")
+            else:
+                tree.configure(columns=("sr_no", "scheme_id", "name", "block_name", "timestamp"))
+                tree.heading("sr_no", text="Sr. No.", command=lambda: sort_column("sr_no", False))
+                tree.heading("scheme_id", text="OHT Code / Scheme ID", command=lambda: sort_column("scheme_id", False))
+                tree.heading("name", text="Scheme / Gram Panchayat Name", command=lambda: sort_column("name", False))
+                tree.heading("block_name", text="Block Name", command=lambda: sort_column("block_name", False))
+                tree.heading("timestamp", text="Last Data Receive Date", command=lambda: sort_column("timestamp", False))
+                
+                tree.column("sr_no", width=60, minwidth=60, anchor="center")
+                tree.column("scheme_id", width=140, minwidth=100, anchor="center")
+                tree.column("name", width=340, minwidth=240, anchor="w")
+                tree.column("block_name", width=140, minwidth=100, anchor="w")
+                tree.column("timestamp", width=200, minwidth=140, anchor="w")
+                
+            update_list()
+
+        op_toggle = ctk.CTkSwitch(control_frame, text="Show Operator Info", progress_color=CLR_CYAN, variable=show_op_var, command=on_toggle_op)
+        op_toggle.pack(side="right")
 
         search_var.trace_add("write", update_list)
         
@@ -2804,10 +2896,14 @@ del "%~f0"
         btn_frame.pack(fill="x", padx=15, pady=(0, 15))
         
         def copy_data():
-            lines = ["Sr. No.\tOHT Code / Scheme ID\tScheme / Gram Panchayat Name\tBlock Name\tLast Data Receive Date"]
+            if show_op_var.get():
+                headers = ["Sr. No.", "OHT Code / Scheme ID", "Scheme / Gram Panchayat Name", "Block Name", "Operator Name", "Operator Phone", "Last Data Receive Date"]
+            else:
+                headers = ["Sr. No.", "OHT Code / Scheme ID", "Scheme / Gram Panchayat Name", "Block Name", "Last Data Receive Date"]
+            lines = ["\t".join(headers)]
             for k in tree.get_children(""):
-                vals = tree.item(k, "values")
-                lines.append(f"{vals[0]}\t{vals[1]}\t{vals[2]}\t{vals[3]}\t{vals[4]}")
+                vals = [str(x) for x in tree.item(k, "values")]
+                lines.append("\t".join(vals))
             data_str = "\n".join(lines)
             popup.clipboard_clear()
             popup.clipboard_append(data_str)
@@ -2826,7 +2922,11 @@ del "%~f0"
                     import csv
                     with open(filepath, "w", newline="", encoding="utf-8") as f:
                         writer = csv.writer(f)
-                        writer.writerow(["Sr. No.", "OHT Code / Scheme ID", "Scheme / Gram Panchayat Name", "Block Name", "Last Data Receive Date"])
+                        if show_op_var.get():
+                            headers = ["Sr. No.", "OHT Code / Scheme ID", "Scheme / Gram Panchayat Name", "Block Name", "Operator Name", "Operator Phone", "Last Data Receive Date"]
+                        else:
+                            headers = ["Sr. No.", "OHT Code / Scheme ID", "Scheme / Gram Panchayat Name", "Block Name", "Last Data Receive Date"]
+                        writer.writerow(headers)
                         for k in tree.get_children(""):
                             writer.writerow(tree.item(k, "values"))
                     messagebox.showinfo("Success", f"Data exported successfully to:\n{filepath}", parent=popup)
