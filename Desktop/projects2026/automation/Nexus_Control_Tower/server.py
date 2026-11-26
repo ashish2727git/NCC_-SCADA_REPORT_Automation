@@ -59,16 +59,22 @@ def sync_db_from_s3():
     except Exception as e:
         logger.warning(f"[DB] No existing database on S3 or download failed: {e}")
 
+_last_rotating_backup_ts = 0
+
 def sync_db_to_s3():
+    global _last_rotating_backup_ts
     try:
         s3 = get_s3_client()
         s3.upload_file(DB_FILE, S3_BUCKET, DB_FILE)
         logger.info("[DB] Successfully backed up database to S3.")
         
-        # Save rotating timestamped backup
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        s3.upload_file(DB_FILE, S3_BUCKET, f"backups/nexus_db_{timestamp}.sqlite")
-        logger.info(f"[DB] Saved rotating timestamped database backup to S3: backups/nexus_db_{timestamp}.sqlite")
+        # Save rotating timestamped backup at most once per hour to reduce S3 PUT/storage costs
+        now = time.time()
+        if now - _last_rotating_backup_ts >= 3600:
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            s3.upload_file(DB_FILE, S3_BUCKET, f"backups/nexus_db_{timestamp}.sqlite")
+            _last_rotating_backup_ts = now
+            logger.info(f"[DB] Saved rotating timestamped database backup to S3: backups/nexus_db_{timestamp}.sqlite")
     except Exception as e:
         logger.error(f"[DB] Failed to backup database to S3: {e}")
 
