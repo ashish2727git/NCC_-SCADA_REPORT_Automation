@@ -1,0 +1,10 @@
+tools/
+.env
+__pycache__/
+*.py[cod]
+*.pyo
+build/
+dist/
+.venv/
+venv/
+*.sqlite
