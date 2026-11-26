@@ -437,6 +437,50 @@ def admin_list_licenses(request: Request):
         for r in rows
     ]
 
+@app.get("/api/admin/live_stats")
+def admin_live_stats(request: Request):
+    if not check_admin_auth(request):
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        SELECT cs.hwid,
+               COALESCE(l.client_name, 'Unknown Client'),
+               COALESCE(l.last_seen, 0),
+               cs.jjm_total, cs.jjm_live, cs.jjm_not_received, cs.jjm_missing, cs.jjm_new,
+               cs.scada_total, cs.scada_synced, cs.scada_not_synced, cs.scada_new,
+               cs.last_report_file, cs.last_updated
+        FROM client_stats cs
+        LEFT JOIN licenses l ON cs.hwid = l.hwid
+        ORDER BY cs.last_updated DESC
+    """)
+    rows = c.fetchall()
+    conn.close()
+
+    now = int(time.time())
+    clients = [
+        {
+            "hwid": r[0],
+            "client_name": r[1],
+            "last_seen": r[2],
+            "is_online": (now - (r[2] or 0)) <= 40,
+            "jjm_total": r[3],
+            "jjm_live": r[4],
+            "jjm_not_received": r[5],
+            "jjm_missing": r[6],
+            "jjm_new": r[7],
+            "scada_total": r[8],
+            "scada_synced": r[9],
+            "scada_not_synced": r[10],
+            "scada_new": r[11],
+            "last_report_file": r[12] or "",
+            "last_updated": r[13] or 0,
+        }
+        for r in rows
+    ]
+    return {"clients": clients, "latest": clients[0] if clients else None}
+
 @app.get("/api/admin/analytics_data")
 def admin_analytics_data(request: Request):
     if not check_admin_auth(request):

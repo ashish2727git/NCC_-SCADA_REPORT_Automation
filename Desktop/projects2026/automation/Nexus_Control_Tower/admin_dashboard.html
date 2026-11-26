@@ -173,6 +173,45 @@
           <div class="stat-value red" id="stat-revoked">—</div>
         </div>
       </div>
+
+      <!-- LIVE CLIENT COUNTS (REAL-TIME JJM & SCADA) -->
+      <div class="card" style="border-color: rgba(16, 185, 129, 0.4); background: linear-gradient(135deg, #0f172a, #111c2d);">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
+          <div>
+            <h3 style="font-size:1.1rem; display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+              📊 Live Client Counts <span style="font-size:.72rem; background:rgba(16,185,129,.18); color:#10b981; padding:2px 8px; border-radius:999px; font-weight:700;">● REAL-TIME</span>
+            </h3>
+            <p style="color:var(--muted); font-size:.82rem;" id="live-stats-meta">Waiting for client telemetry...</p>
+          </div>
+          <select id="live-stats-client-select" onchange="renderSelectedLiveStats()" style="padding:7px 12px; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--text); font-size:.85rem; min-width:200px; display:none;"></select>
+        </div>
+
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
+          <!-- JJM Portal -->
+          <div style="background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px;">
+            <div style="font-size:.82rem; font-weight:700; color:#38bdf8; margin-bottom:10px; letter-spacing:.03em;">🌐 JJM PORTAL</div>
+            <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; text-align:center;">
+              <div><div style="font-size:.7rem; color:var(--muted);">Total</div><div id="lc-jjm-total" style="font-size:1.25rem; font-weight:700; color:var(--text);">—</div></div>
+              <div><div style="font-size:.7rem; color:var(--muted);">🟢 Live</div><div id="lc-jjm-live" style="font-size:1.25rem; font-weight:700; color:#10b981;">—</div></div>
+              <div><div style="font-size:.7rem; color:var(--muted);">🟡 Not Recv</div><div id="lc-jjm-notrecv" style="font-size:1.25rem; font-weight:700; color:#f59e0b;">—</div></div>
+              <div><div style="font-size:.7rem; color:var(--muted);">🔴 Missing</div><div id="lc-jjm-missing" style="font-size:1.25rem; font-weight:700; color:#ef4444;">—</div></div>
+              <div><div style="font-size:.7rem; color:var(--muted);">🆕 New</div><div id="lc-jjm-new" style="font-size:1.25rem; font-weight:700; color:#38bdf8;">—</div></div>
+            </div>
+          </div>
+
+          <!-- SCADA Telemetry -->
+          <div style="background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px;">
+            <div style="font-size:.82rem; font-weight:700; color:#a78bfa; margin-bottom:10px; letter-spacing:.03em;">📡 SCADA TELEMETRY</div>
+            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; text-align:center;">
+              <div><div style="font-size:.7rem; color:var(--muted);">Total</div><div id="lc-scada-total" style="font-size:1.25rem; font-weight:700; color:var(--text);">—</div></div>
+              <div><div style="font-size:.7rem; color:var(--muted);">✅ Synced</div><div id="lc-scada-synced" style="font-size:1.25rem; font-weight:700; color:#10b981;">—</div></div>
+              <div><div style="font-size:.7rem; color:var(--muted);">⚠️ Unsynced</div><div id="lc-scada-unsynced" style="font-size:1.25rem; font-weight:700; color:#f59e0b;">—</div></div>
+              <div><div style="font-size:.7rem; color:var(--muted);">🆕 New</div><div id="lc-scada-new" style="font-size:1.25rem; font-weight:700; color:#a78bfa;">—</div></div>
+            </div>
+          </div>
+        </div>
+        <div id="lc-last-file" style="margin-top:10px; font-size:.78rem; color:var(--muted); font-family:'JetBrains Mono',monospace;"></div>
+      </div>
       <div class="card" style="background: linear-gradient(135deg, #14213d, #0f1829); border-color: rgba(59, 130, 246, 0.4); box-shadow: 0 10px 30px rgba(59,130,246,0.1)">
         <h3 style="margin-bottom:8px;font-size:1.1rem;display:flex;align-items:center;gap:8px">⚡ Live Portal Actions</h3>
         <p style="color:var(--muted);font-size:.85rem;margin-bottom:18px">Trigger instant manual attendance scrapes or report broadcasting across all active node machines in one single click.</p>
@@ -1302,8 +1341,72 @@ async function loadAnalytics() {
   }
 }
 
+let _liveStatsCache = [];
+
+async function loadLiveStats() {
+  try {
+    const r = await fetch('/api/admin/live_stats');
+    if (!r.ok) return;
+    const data = await r.json();
+    _liveStatsCache = data.clients || [];
+
+    const sel = document.getElementById('live-stats-client-select');
+    if (_liveStatsCache.length > 1) {
+      const prevVal = sel.value;
+      sel.style.display = 'inline-block';
+      sel.innerHTML = _liveStatsCache.map(c =>
+        `<option value="${c.hwid}">${c.client_name} (${c.is_online ? 'ONLINE' : 'OFFLINE'})</option>`
+      ).join('');
+      if (prevVal && _liveStatsCache.some(c => c.hwid === prevVal)) sel.value = prevVal;
+    } else {
+      sel.style.display = 'none';
+    }
+    renderSelectedLiveStats();
+  } catch (e) {
+    console.error("Failed to load live stats:", e);
+  }
+}
+
+function renderSelectedLiveStats() {
+  const meta = document.getElementById('live-stats-meta');
+  const fileEl = document.getElementById('lc-last-file');
+  if (!_liveStatsCache.length) {
+    meta.textContent = 'No live counts reported by any client yet.';
+    fileEl.textContent = '';
+    return;
+  }
+  const sel = document.getElementById('live-stats-client-select');
+  const target = (_liveStatsCache.length > 1 && sel.value)
+    ? (_liveStatsCache.find(c => c.hwid === sel.value) || _liveStatsCache[0])
+    : _liveStatsCache[0];
+
+  const updatedStr = target.last_updated ? new Date(target.last_updated * 1000).toLocaleString() : 'Never';
+  meta.innerHTML = `Client: <strong style="color:var(--text)">${target.client_name}</strong> · Last synced: <strong style="color:var(--text)">${updatedStr}</strong>`;
+
+  document.getElementById('lc-jjm-total').textContent = target.jjm_total;
+  document.getElementById('lc-jjm-live').textContent = target.jjm_live;
+  document.getElementById('lc-jjm-notrecv').textContent = target.jjm_not_received;
+  document.getElementById('lc-jjm-missing').textContent = target.jjm_missing;
+  document.getElementById('lc-jjm-new').textContent = target.jjm_new;
+
+  document.getElementById('lc-scada-total').textContent = target.scada_total;
+  document.getElementById('lc-scada-synced').textContent = target.scada_synced;
+  document.getElementById('lc-scada-unsynced').textContent = target.scada_not_synced;
+  document.getElementById('lc-scada-new').textContent = target.scada_new;
+
+  fileEl.textContent = target.last_report_file ? `📁 Last File: ${target.last_report_file}` : '';
+}
+
 window.onload = function() {
   loadDashboard();
+  loadLiveStats();
+  setInterval(() => {
+    const dash = document.getElementById('sec-dashboard');
+    if (dash && dash.classList.contains('active')) {
+      loadLiveStats();
+      loadDashboard();
+    }
+  }, 5000);
 };
 </script>
   <!-- Analytics Loading Overlay -->
