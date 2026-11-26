@@ -66,14 +66,28 @@ jobs:
         working-directory: Desktop/projects2026/automation
         run: pyinstaller --noconfirm NexusSyncPro_Advanced.spec
 
-      - name: Rename EXE with version tag
+      - name: Tag EXE with CLIENT_VERSION and SHA256
         working-directory: Desktop/projects2026/automation
         shell: powershell
         run: |
-          $version = (Get-Date -Format "yyyy.MM.dd")
+          $pyContent = Get-Content -Path "NexusSyncPro_Advanced.py" -Raw
+          if ($pyContent -match 'CLIENT_VERSION\s*=\s*"([^"]+)"') {
+              $version = $matches[1]
+          } else {
+              $version = (Get-Date -Format "yyyy.MM.dd")
+          }
           $src = Get-ChildItem -Path dist -Filter "*.exe" | Select-Object -First 1
-          Rename-Item -Path $src.FullName -NewName "Ashish_Kumar_NexusSyncPro_$version.exe"
-          echo "EXE_NAME=Ashish_Kumar_NexusSyncPro_$version.exe" >> $env:GITHUB_ENV
+          $targetName = "Ashish_Kumar_NexusSyncPro_v$version.exe"
+          if ($src.Name -ne $targetName) {
+              Rename-Item -Path $src.FullName -NewName $targetName
+              $exePath = Join-Path $src.DirectoryName $targetName
+          } else {
+              $exePath = $src.FullName
+          }
+          $sha256 = (Get-FileHash -Path $exePath -Algorithm SHA256).Hash.ToLower()
+          echo "EXE_NAME=$targetName" >> $env:GITHUB_ENV
+          echo "CLIENT_VERSION=$version" >> $env:GITHUB_ENV
+          echo "EXE_SHA256=$sha256" >> $env:GITHUB_ENV
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -91,16 +105,16 @@ jobs:
           Write-Host "✅ EXE uploaded to S3 as ${{ env.EXE_NAME }} and latest.exe"
           
           # Publish version dynamically to the control tower database
-          $version = (Get-Date -Format "yyyy.MM.dd")
           $body = @{
-              version_str = $version
+              version_str = "${{ env.CLIENT_VERSION }}"
               filename = "${{ env.EXE_NAME }}"
+              sha256 = "${{ env.EXE_SHA256 }}"
               admin_secret = "${{ secrets.ADMIN_SECRET }}"
           } | ConvertTo-Json
           
           try {
               $resp = Invoke-RestMethod -Uri "http://devash.in/api/admin/publish_version" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 10
-              Write-Host "✅ Successfully published version to database: $version"
+              Write-Host "✅ Successfully published version to database: ${{ env.CLIENT_VERSION }}"
           } catch {
               Write-Host "⚠️ Warning: Failed to publish version to backend API: $_"
           }
