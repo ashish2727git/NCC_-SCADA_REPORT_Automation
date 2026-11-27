@@ -50,7 +50,7 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # ==========================================
 # ⚙️ MASTER CONFIGURATION
 # ==========================================
-CLIENT_VERSION = "17.6"
+CLIENT_VERSION = "17.7"
 
 # ── SELF-HEALING FILENAME UPDATE ──
 try:
@@ -2573,8 +2573,9 @@ del "%~f0"
 
 
     def _create_metric_card_grid(self, parent, title, val, color, row, col, command=None):
-        card = ctk.CTkFrame(parent, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER,
-                            height=62)  # fixed min-height so numbers never overflow
+        card_bg = "#f8fafc" if UI_THEME == "classic" else CLR_LOG_BG
+        card = ctk.CTkFrame(parent, fg_color=card_bg, border_width=2, border_color=color,
+                            corner_radius=8, height=62)  # fixed min-height so numbers never overflow
         card.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
         card.pack_propagate(False)  # prevent children from resizing the card
 
@@ -2599,7 +2600,8 @@ del "%~f0"
         return lbl
 
     def _create_metric_card(self, parent, title, val, color, command=None):
-        card = ctk.CTkFrame(parent, fg_color=CLR_CARD, border_width=1, border_color=CLR_BORDER, height=85)
+        card_bg = "#f8fafc" if UI_THEME == "classic" else CLR_LOG_BG
+        card = ctk.CTkFrame(parent, fg_color=card_bg, border_width=2, border_color=color, corner_radius=8, height=85)
         card.pack(side="left", fill="both", expand=True, padx=(0, 8))
         card.pack_propagate(False)
         title_lbl = ctk.CTkLabel(card, text=title, font=("Segoe UI", 10, "bold"), text_color=CLR_DIM, fg_color="transparent")
